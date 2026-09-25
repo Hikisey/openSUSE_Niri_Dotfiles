@@ -9,14 +9,13 @@ for arg in "$@"; do
     --force|-f) FORCE=1 ;;
     -h|--help)
       printf '%s\n' "Usage: waywallen-noctalia-palette [--force]"
+      printf '%s\n' "  Also applies GTK/Qt/KDE via waywallen-gtk-qt-palette (same image)."
       exit 0
       ;;
   esac
 done
 
-MAIN_CONNECTOR="${WAYWALLEN_MAIN_CONNECTOR:-}"
-# Optional last-resort: named display section in Waywallen config (often stale under Niri).
-# Set e.g. WAYWALLEN_MAIN_CONNECTOR=DP-1 if you need that fallback.
+MAIN_CONNECTOR="${WAYWALLEN_MAIN_CONNECTOR:-DP-2}"
 WW_CONFIG="${WAYWALLEN_CONFIG:-$HOME/.config/waywallen/config.toml}"
 WW_DB="${WAYWALLEN_DB:-$HOME/.local/share/waywallen/waywallen-v2.db}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/noctalia"
@@ -190,12 +189,10 @@ resolve_from_config() {
     return 0
   fi
 
-  if [[ -n "$MAIN_CONNECTOR" ]]; then
-    id="$(_toml_last_wallpaper_in_sections connector "$MAIN_CONNECTOR")"
-    if [[ -n "$id" ]]; then
-      printf 'item\t%s' "$id"
-      return 0
-    fi
+  id="$(_toml_last_wallpaper_in_sections connector "$MAIN_CONNECTOR")"
+  if [[ -n "$id" ]]; then
+    printf 'item\t%s' "$id"
+    return 0
   fi
   return 1
 }
@@ -259,18 +256,20 @@ if [[ -f "$CACHE_JPG" ]] && [[ -s "$CACHE_JPG" ]]; then
   cache_ok=1
 fi
 
+# Defer exit until SRC fingerprint is known (hash change re-applies without --force).
+STATE_PREV=""
 if [[ "$FORCE" -eq 0 && -f "$STATE_FILE" ]]; then
   prev="$(cat "$STATE_FILE" 2>/dev/null || true)"
-  # Accept legacy bare item-id state for same wallpaper
-  if [[ "$prev" == "$STATE_KEY" || "$prev" == "$ITEM_ID" || ( -n "$EXTERNAL_ID" && "$prev" == "w:$EXTERNAL_ID" ) ]]; then
-    if [[ "$cache_ok" -eq 1 ]]; then
-      if [[ ! -f "$THEME_MARKER" ]]; then
-        noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null 2>&1 || true
-        touch "$THEME_MARKER"
-      fi
-      log "unchanged $STATE_KEY item_id=$ITEM_ID source=$SOURCE — exit 0"
-      exit 0
-    fi
+  prev_key="${prev%% *}"
+  key_ok=0
+  if [[ "$prev_key" == "$STATE_KEY" || "$prev" == "$ITEM_ID" ]]; then
+    key_ok=1
+  elif [[ -n "$EXTERNAL_ID" && "$prev_key" == "w:$EXTERNAL_ID" ]]; then
+    key_ok=1
+  fi
+  if [[ "$key_ok" -eq 1 && "$cache_ok" -eq 1 ]]; then
+    STATE_PREV="$prev"
+  elif [[ "$key_ok" -eq 1 && "$cache_ok" -eq 0 ]]; then
     log "state matches $STATE_KEY but cache missing/empty — re-apply"
   fi
 fi
@@ -301,7 +300,8 @@ if [[ -n "$EXTERNAL_ID" ]]; then
   else
     WS_BASE="$HOME/.local/share/Steam/steamapps/workshop/content/431960/$EXTERNAL_ID"
   fi
-  for name in preview.jpg preview.png preview.webp preview.jpeg Preview.jpg preview.gif; do
+  # Prefer still formats before gif in the seed list; rank_candidates re-orders firmly.
+  for name in preview.jpg preview.png preview.webp preview.jpeg Preview.jpg Preview.png preview.gif Preview.gif; do
     CANDIDATES+=("$WS_BASE/$name")
   done
 fi
@@ -311,39 +311,146 @@ case "${ITEM_ABS,,}" in
   *.jpg|*.jpeg|*.png|*.webp|*.gif) CANDIDATES+=("$ITEM_ABS") ;;
 esac
 
+# Rank: non-gif first, then larger file size. Deduplicate.
+rank_candidates() {
+  local -a unique=()
+  local c u seen
+  for c in "${CANDIDATES[@]}"; do
+    [[ -n "$c" && -f "$c" ]] || continue
+    seen=0
+    for u in "${unique[@]+"${unique[@]}"}"; do
+      if [[ "$u" == "$c" ]]; then seen=1; break; fi
+    done
+    [[ "$seen" -eq 1 ]] && continue
+    unique+=("$c")
+  done
+  ((${#unique[@]} > 0)) || return 1
+  for c in "${unique[@]}"; do
+    local ext="${c##*.}"
+    ext="${ext,,}"
+    local is_gif=0
+    [[ "$ext" == "gif" ]] && is_gif=1
+    local sz=0
+    sz=$(stat -c '%s' "$c" 2>/dev/null || echo 0)
+    printf '%d %d %s\n' "$is_gif" "$sz" "$c"
+  done | sort -k1,1n -k2,2nr | awk '{ $1=""; $2=""; sub(/^  /,""); print }'
+}
+
 SRC=""
-for c in "${CANDIDATES[@]}"; do
-  if [[ -n "$c" && -f "$c" ]]; then
-    SRC="$c"
-    break
-  fi
-done
+while IFS= read -r c; do
+  [[ -n "$c" ]] || continue
+  SRC="$c"
+  break
+done < <(rank_candidates || true)
 
 [[ -n "$SRC" ]] || die "no preview image found for item $ITEM_ID (external=$EXTERNAL_ID)"
+
+# Content fingerprint of chosen source (re-apply when preview file changes but id does not).
+SRC_HASH=""
+if command -v sha256sum >/dev/null 2>&1; then
+  SRC_HASH="$(sha256sum "$SRC" | awk '{print $1}')"
+elif command -v sha256 >/dev/null 2>&1; then
+  SRC_HASH="$(sha256 -q "$SRC" 2>/dev/null || true)"
+fi
+STATE_PAYLOAD="$STATE_KEY"
+[[ -n "$SRC_HASH" ]] && STATE_PAYLOAD="$STATE_KEY sha256:$SRC_HASH"
+
+# Short-circuit if key+hash unchanged and cache present.
+if [[ "$FORCE" -eq 0 && -n "${STATE_PREV:-}" && "$cache_ok" -eq 1 ]]; then
+  prev_hash=""
+  if [[ "$STATE_PREV" == *" sha256:"* ]]; then
+    prev_hash="${STATE_PREV##*sha256:}"
+  fi
+  hash_ok=0
+  if [[ -n "$SRC_HASH" && -n "$prev_hash" ]]; then
+    [[ "$prev_hash" == "$SRC_HASH" ]] && hash_ok=1
+  elif [[ -z "$prev_hash" ]]; then
+    # Legacy state without hash: treat as match; upgrade fingerprint without re-encode
+    hash_ok=1
+  fi
+  if [[ "$hash_ok" -eq 1 ]]; then
+    if [[ -n "$SRC_HASH" && "$STATE_PREV" != *"sha256:"* ]]; then
+      printf '%s\n' "$STATE_PAYLOAD" >"$STATE_FILE"
+      log "upgraded state fingerprint $STATE_PAYLOAD (cache kept)"
+    fi
+    if [[ ! -f "$THEME_MARKER" ]]; then
+      noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null 2>&1 || true
+      touch "$THEME_MARKER"
+    fi
+    # Still push GTK/Qt when never applied (sibling is idempotent via its own hash marker).
+    if command -v waywallen-gtk-qt-palette >/dev/null 2>&1; then
+      waywallen-gtk-qt-palette "$CACHE_JPG" >>"$LOG" 2>&1 || log "WARN: waywallen-gtk-qt-palette (unchanged path) failed"
+    fi
+    log "unchanged $STATE_PAYLOAD item_id=$ITEM_ID source=$SOURCE src=$SRC — exit 0"
+    exit 0
+  fi
+  log "content hash changed for $STATE_KEY — re-apply"
+fi
 
 ext_lower="${SRC##*.}"
 ext_lower="${ext_lower,,}"
 TMP="$CACHE_JPG.tmp.$$"
+MIN_DIM=400
+UPSCALE_LONG=1024
+# Blue Sky workshop (preview.gif only); optional enrichment from historical wallhaven palette.
+BLUE_SKY_ID="2944773634"
+WALLHAVEN_ENRICH="${WAYWALLEN_PALETTE_ENRICH:-$HOME/Pictures/wallhaven-1q2zd1.jpg}"
+USED_ENRICH=0
 
-cleanup() { rm -f "$TMP" "$CACHE_DIR/waywallen-apply-$$.jpg" 2>/dev/null || true; }
+cleanup() { rm -f "$TMP" "$CACHE_DIR/waywallen-apply-$$.jpg" "$CACHE_DIR/waywallen-enrich-$$.jpg" 2>/dev/null || true; }
 trap cleanup EXIT
+
+_img_wh() {
+  local f="$1"
+  if command -v magick >/dev/null 2>&1; then
+    magick identify -format '%w %h' "${f}[0]" 2>/dev/null || echo '0 0'
+  elif command -v identify >/dev/null 2>&1; then
+    identify -format '%w %h' "${f}[0]" 2>/dev/null || echo '0 0'
+  else
+    echo '0 0'
+  fi
+}
 
 encode_jpeg() {
   local in="$1" frame_gif="$2"
+  local w h long_side need_up=0
+  read -r w h <<<"$(_img_wh "$in")"
+  long_side=$w
+  (( h > w )) && long_side=$h
+  if [[ "$frame_gif" == 1 ]] || (( w > 0 && w < MIN_DIM )) || (( h > 0 && h < MIN_DIM )); then
+    need_up=1
+  fi
+
+  local -a resize_args=()
+  if [[ "$need_up" == 1 ]]; then
+    # At least UPSCALE_LONG on the long side (Lanczos). Only enlarge when smaller.
+    if (( long_side > 0 && long_side < UPSCALE_LONG )); then
+      if (( w >= h )); then
+        resize_args=(-filter Lanczos -resize "${UPSCALE_LONG}x")
+      else
+        resize_args=(-filter Lanczos -resize "x${UPSCALE_LONG}")
+      fi
+    fi
+  fi
+
   if command -v magick >/dev/null 2>&1; then
     if [[ "$frame_gif" == 1 ]]; then
-      magick "${in}[0]" -strip -quality 92 jpeg:"$TMP" || die "magick failed on $in"
+      magick "${in}[0]" "${resize_args[@]}" -strip -quality 92 jpeg:"$TMP" || die "magick failed on $in"
     else
-      magick "$in" -strip -quality 92 jpeg:"$TMP" || die "magick convert failed on $in"
+      magick "$in" "${resize_args[@]}" -strip -quality 92 jpeg:"$TMP" || die "magick convert failed on $in"
     fi
   elif command -v convert >/dev/null 2>&1; then
     if [[ "$frame_gif" == 1 ]]; then
-      convert "${in}[0]" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
+      convert "${in}[0]" "${resize_args[@]}" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
     else
-      convert "$in" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
+      convert "$in" "${resize_args[@]}" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
     fi
   elif command -v ffmpeg >/dev/null 2>&1; then
-    ffmpeg -y -loglevel error -i "$in" -frames:v 1 -q:v 3 "$TMP.jpg" \
+    local vf="scale=iw:ih"
+    if [[ "$need_up" == 1 ]] && (( long_side > 0 && long_side < UPSCALE_LONG )); then
+      vf="scale='if(gte(iw,ih),${UPSCALE_LONG},-1)':'if(gte(ih,iw),${UPSCALE_LONG},-1)':flags=lanczos"
+    fi
+    ffmpeg -y -loglevel error -i "$in" -frames:v 1 -q:v 2 -vf "$vf" "$TMP.jpg" \
       || die "ffmpeg failed on $in"
     mv -f "$TMP.jpg" "$TMP"
   else
@@ -356,6 +463,37 @@ case "$ext_lower" in
   webp|png|jpeg|jpg) encode_jpeg "$SRC" 0 ;;
   *) die "unsupported preview type: $ext_lower ($SRC)" ;;
 esac
+
+# Optional enrichment for known Blue Sky / gif-only case after upscale.
+# Prefer upscaled gif first; blend wallhaven only if it exists and this is the known id.
+# Does NOT change wallpaper id / Waywallen selection.
+read -r out_w out_h <<<"$(_img_wh "$TMP")"
+if [[ "$EXTERNAL_ID" == "$BLUE_SKY_ID" && "$ext_lower" == "gif" && -f "$WALLHAVEN_ENRICH" ]]; then
+  ENRICH_TMP="$CACHE_DIR/waywallen-enrich-$$.jpg"
+  if command -v magick >/dev/null 2>&1; then
+    if magick "$WALLHAVEN_ENRICH" -resize "${UPSCALE_LONG}x${UPSCALE_LONG}^" -gravity center -extent "${UPSCALE_LONG}x${UPSCALE_LONG}" \
+         "$TMP" -resize "${UPSCALE_LONG}x${UPSCALE_LONG}^" -gravity center -extent "${UPSCALE_LONG}x${UPSCALE_LONG}" \
+         -compose blend -define compose:args=40,60 -composite -strip -quality 92 jpeg:"$ENRICH_TMP" 2>/dev/null; then
+      mv -f "$ENRICH_TMP" "$TMP"
+      USED_ENRICH=1
+      log "enriched Blue Sky gif cache with wallhaven-1q2zd1 (blend; wallpaper id unchanged)"
+    else
+      rm -f "$ENRICH_TMP"
+      log "WARN: wallhaven enrich failed — keeping upscaled gif"
+    fi
+  elif command -v convert >/dev/null 2>&1; then
+    if convert "$WALLHAVEN_ENRICH" -resize "${UPSCALE_LONG}x${UPSCALE_LONG}^" -gravity center -extent "${UPSCALE_LONG}x${UPSCALE_LONG}" \
+         "$TMP" -resize "${UPSCALE_LONG}x${UPSCALE_LONG}^" -gravity center -extent "${UPSCALE_LONG}x${UPSCALE_LONG}" \
+         -compose blend -define compose:args=40,60 -composite -strip -quality 92 jpeg:"$ENRICH_TMP" 2>/dev/null; then
+      mv -f "$ENRICH_TMP" "$TMP"
+      USED_ENRICH=1
+      log "enriched Blue Sky gif cache with wallhaven-1q2zd1 (blend; wallpaper id unchanged)"
+    else
+      rm -f "$ENRICH_TMP"
+      log "WARN: wallhaven enrich failed — keeping upscaled gif"
+    fi
+  fi
+fi
 
 mv -f "$TMP" "$CACHE_JPG"
 trap - EXIT
@@ -396,7 +534,19 @@ if [[ "$en" == "true" ]]; then
   log "WARN: [wallpaper] enabled became true — leaving as-is (keep false; check manually)"
 fi
 
-printf '%s\n' "$STATE_KEY" >"$STATE_FILE"
+printf '%s\n' "$STATE_PAYLOAD" >"$STATE_FILE"
 scheme="$(noctalia msg color-scheme-get 2>/dev/null || echo '?')"
-log "applied $STATE_KEY item_id=$ITEM_ID external=$EXTERNAL_ID source=$SOURCE src=$SRC cache=$CACHE_JPG scheme=[$scheme]"
+dims="$(_img_wh "$CACHE_JPG")"
+log "applied $STATE_PAYLOAD item_id=$ITEM_ID external=$EXTERNAL_ID source=$SOURCE src=$SRC cache=$CACHE_JPG dims=$dims enrich=$USED_ENRICH scheme=[$scheme]"
+
+# Propagate same wallpaper image → GTK3/4 + KDE MaterialYouDark + qt5ct (sibling; no second daemon).
+if command -v waywallen-gtk-qt-palette >/dev/null 2>&1; then
+  if waywallen-gtk-qt-palette --force "$CACHE_JPG" >>"$LOG" 2>&1; then
+    log "gtk-qt-palette applied from $CACHE_JPG"
+  else
+    log "WARN: waywallen-gtk-qt-palette failed (Noctalia palette still applied)"
+  fi
+else
+  log "WARN: waywallen-gtk-qt-palette not installed — GTK/Qt not updated"
+fi
 exit 0

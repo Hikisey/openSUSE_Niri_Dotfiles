@@ -6,7 +6,7 @@ Portable **openSUSE Tumbleweed** + **Niri** rice (optional Noctalia Shell).
 ricing, no personal dotfiles to preserve. First `./install.sh` lays down the
 full desktop stack (Niri + helpers + optional Noctalia).
 
-No personal monitors, cursor theme, window pinning, or game-specific rules.
+No personal monitors, cursor theme, layout pinning, or game-specific rules.
 
 
 ## Install
@@ -20,13 +20,33 @@ cd openSUSE_Niri_Dotfiles
 Prompts:
 
 1. **Profile** — `full` (Noctalia) or `tech` (without Noctalia bits)
-2. **Waywallen extras?** — only with `full`; palette bridge + systemd + autostart template (AppImage not included)
+2. **Waywallen extras?** — only with `full`; default **No**. Installs the
+   wallpaper → Noctalia + GTK + Qt palette bridge, systemd units, and an
+   autostart template (AppImage **not** included)
 
 Skip package install:
 
 ```bash
 SKIP_PACKAGES=1 ./install.sh
 ```
+
+## Theme / default look (fresh install)
+
+You do **not** need to hand-craft a theme (no manual `MaterialYouDark`, no
+custom `kdeglobals` editing). Pick a path and the palette follows wallpaper.
+
+| Path | What you get |
+|------|----------------|
+| **Stock Plasma before this rice** | openSUSE default Look-and-Feel: **Breeze** + **BreezeClassic** (light-leaning). Some installs use Breeze Light / Dark if you changed it in Settings. |
+| **After `./install.sh`, Waywallen = No** (default) | **Noctalia** uses its **built-in** soft look until you set a wallpaper in Noctalia; then Noctalia can derive a **wallpaper soft** palette itself. **GTK / Qt / KDE** stay stock Plasma (**Breeze** / **BreezeClassic**) — this rice does **not** copy `kdeglobals`, GTK CSS, or qt5ct colors. Niri focus/border accents in the full profile are a fixed soft dark gray (`noctalia.kdl`). |
+| **After `./install.sh`, Waywallen = Yes** (optional) | Same rice + bridge: when Waywallen’s active wallpaper changes, colors update for **Noctalia + GTK3/4 + KDE (`MaterialYouDark`) + qt5ct** from that image. First wallpaper change generates the palette — no theme authoring. |
+
+Summary:
+
+- **Without Waywallen** → Noctalia builtin / Breeze-ish apps; change a Noctalia wallpaper if you want a matching shell palette.
+- **With Waywallen** → wallpaper-driven palette for Noctalia + GTK + Qt (optional path only).
+
+Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 
 ## After install
 
@@ -35,6 +55,7 @@ SKIP_PACKAGES=1 ./install.sh
 3. Review keybinds for your apps
 4. Point Noctalia at your real outputs
 5. If you enabled Waywallen: put the AppImage at `~/Applications/waywallen.appimage`
+6. Theme: no manual palette file needed — see **Theme / default look** above
 
 ## Fresh install vs re-run
 
@@ -66,15 +87,17 @@ Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 ## Included
 
 - Niri config under `.config/niri/`
-- Optional Noctalia colors + shell config (monitor lists cleared)
+- Optional Noctalia shell config (monitor lists cleared; **no** shipped color
+  scheme / `MaterialYouDark` / GTK-Qt files)
 - Kitty + Wayland helpers (screenshot / record / OCR / cast privacy / game-mode)
 - `packages/zypper.txt`
-- Optional Waywallen extras under `optional/waywallen/`
+- Optional Waywallen extras under `optional/waywallen/` (palette + GTK/Qt bridge)
 
 ## Not included
 
 - Monitor `output { }` blocks, cursor theme, layout pins, game window rules
 - Wallpaper dumps / live palette caches
+- Hand-crafted `MaterialYouDark` / `kdeglobals` / GTK / qt5ct themes
 - Waywallen AppImage
 
 ## Portability

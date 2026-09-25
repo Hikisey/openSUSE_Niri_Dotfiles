@@ -34,6 +34,17 @@ echo "Installing Waywallen extras only (dotfiles rice untouched)…"
 write_rewritten "$OPT/bin/waywallen-noctalia-palette" "$HOME_DIR/.local/bin/waywallen-noctalia-palette"
 chmod +x "$HOME_DIR/.local/bin/waywallen-noctalia-palette"
 
+write_rewritten "$OPT/bin/waywallen-gtk-qt-palette" "$HOME_DIR/.local/bin/waywallen-gtk-qt-palette"
+chmod +x "$HOME_DIR/.local/bin/waywallen-gtk-qt-palette"
+
+mkdir -p "$HOME_DIR/.local/lib"
+write_rewritten "$OPT/lib/waywallen-gtk-qt-palette-lib.py" "$HOME_DIR/.local/lib/waywallen-gtk-qt-palette-lib.py"
+chmod +x "$HOME_DIR/.local/lib/waywallen-gtk-qt-palette-lib.py"
+
+mkdir -p "$HOME_DIR/.config/waywallen"
+write_rewritten "$OPT/config/gtk-qt-palette-templates.toml" \
+  "$HOME_DIR/.config/waywallen/gtk-qt-palette-templates.toml"
+
 mkdir -p "$HOME_DIR/.config/systemd/user"
 for u in waywallen-noctalia-palette.path \
          waywallen-noctalia-palette.service \
@@ -56,6 +67,8 @@ fi
 
 echo
 echo "Waywallen extras installed (rice configs not modified)."
+echo "  • GTK/Qt/KDE wallpaper palette is part of this optional path only."
+echo "  • First wallpaper change generates MaterialYouDark + GTK + qt5ct — no hand-crafting."
 echo "  • AppImage → $HOME_DIR/Applications/waywallen.appimage"
 echo "  • Autostart → $HOME_DIR/.config/autostart/waywallen.desktop"
 echo "  • Turn Noctalia wallpaper drawing OFF while Waywallen owns the desktop."

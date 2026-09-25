@@ -17,13 +17,25 @@ systemctl --user daemon-reload 2>/dev/null || true
 
 rm -f "$HOME_DIR/.config/autostart/waywallen.desktop"
 
-# Keep the bridge binary unless asked — easy to re-enable later.
+# Keep bridge / GTK-Qt binaries unless asked — easy to re-enable later.
 if [[ "${REMOVE_BRIDGE_BIN:-0}" == 1 ]]; then
   rm -f "$HOME_DIR/.local/bin/waywallen-noctalia-palette"
+  rm -f "$HOME_DIR/.local/bin/waywallen-gtk-qt-palette"
+  rm -f "$HOME_DIR/.local/lib/waywallen-gtk-qt-palette-lib.py"
+fi
+
+# Always drop the GTK/Qt enablement flag and template config pointer used by the sibling.
+rm -f "$HOME_DIR/.config/waywallen/disable-gtk-qt-palette"
+# Keep gtk-qt-palette-templates.toml unless FORCE remove:
+if [[ "${REMOVE_BRIDGE_BIN:-0}" == 1 ]]; then
+  rm -f "$HOME_DIR/.config/waywallen/gtk-qt-palette-templates.toml"
 fi
 
 echo
 echo "Extras removed (AppImage under ~/Applications is left alone)."
+echo "GTK/Qt theme files in ~/.config/gtk-*/ and kdeglobals are NOT reverted."
+echo "Restore from: ls ~/.local/backups/noctalia-gtk-qt-THEME-*"
+echo "Or disable future GTK/Qt applies: touch ~/.config/waywallen/disable-gtk-qt-palette"
 echo
 echo "Restore Noctalia wallpapers:"
 echo "  1. Stop Waywallen if it is still running (killall waywallen || true)."

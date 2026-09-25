@@ -1,0 +1,45 @@
+# Waywallen → GTK/Qt/KDE palette templates (Noctalia theme engine).
+# Intentionally omits compositor templates (niri/hyprland/…) — do not add them.
+# Used by ~/.local/bin/waywallen-gtk-qt-palette
+
+[config]
+
+[catalog.gtk3]
+name = "GTK 3"
+category = "system"
+
+[catalog.gtk4]
+name = "GTK 4"
+category = "system"
+
+[catalog.kcolorscheme]
+name = "KColorScheme"
+category = "system"
+
+[catalog.qt]
+name = "Qt"
+category = "system"
+
+[templates.gtk3]
+input_path = "/usr/share/noctalia/assets/templates/gtk/gtk3.css"
+output_path = "$XDG_CONFIG_HOME/gtk-3.0/noctalia.css"
+post_hook = "bash '/usr/share/noctalia/assets/templates/gtk/apply.sh' {{ mode }}"
+hook_async = false
+undo_hook = "bash '/usr/share/noctalia/assets/templates/gtk/undo-gtk3.sh'"
+
+[templates.gtk4]
+input_path = "/usr/share/noctalia/assets/templates/gtk/gtk4.css"
+output_path = "$XDG_CONFIG_HOME/gtk-4.0/noctalia.css"
+# gtk3 post_hook already rewrites both gtk.css files; skip duplicate apply here.
+hook_async = false
+undo_hook = "bash '/usr/share/noctalia/assets/templates/gtk/undo-gtk4.sh'"
+
+[templates.kcolorscheme]
+input_path = "/usr/share/noctalia/assets/templates/kde/kcolorscheme.colors"
+output_path = "$XDG_DATA_HOME/color-schemes/noctalia.colors"
+undo_hook = "bash '/usr/share/noctalia/assets/templates/kde/undo.sh'"
+
+[templates.qt]
+input_path = "/usr/share/noctalia/assets/templates/qt/qtct.conf"
+output_path = ["$XDG_CONFIG_HOME/qt5ct/colors/noctalia.conf", "$XDG_CONFIG_HOME/qt6ct/colors/noctalia.conf"]
+undo_hook = "bash '/usr/share/noctalia/assets/templates/qt/undo.sh'"

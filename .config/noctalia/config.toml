@@ -1,3 +1,7 @@
+# Theme: no color scheme forced here. Fresh install → Noctalia builtin / soft.
+# Set a wallpaper in Noctalia (or enable optional Waywallen) to auto-derive
+# a palette — do not hand-craft MaterialYouDark for the default path.
+
 [shell]
 settings_show_advanced = true
 time_format = "{:%I:%M %p}"

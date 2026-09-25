@@ -8,3 +8,7 @@
 6. Waywallen is **optional** — AppImage not vendored; bridge has no hardcoded
    connector (set `WAYWALLEN_MAIN_CONNECTOR` only if you need that fallback).
 7. Autostart files use `@HOME@` rewrite, never a username path.
+8. **No shipped GTK / Qt / `kdeglobals` / `MaterialYouDark`** — fresh users keep
+   stock Plasma (Breeze / BreezeClassic) until they enable optional Waywallen
+   extras (wallpaper-driven palette) or change colors themselves. Personal
+   Noctalia palettes stay gitignored under `.config/noctalia/palettes/`.

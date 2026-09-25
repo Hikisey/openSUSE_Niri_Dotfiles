@@ -4,3 +4,6 @@
 .DS_Store
 .config/niri/cfg/outputs.kdl
 .config/noctalia/palettes/
+
+__pycache__/
+*.pyc

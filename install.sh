@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Safe by default: never overwrite existing user configs.
 # FORCE=1 restores old behavior (backup + replace).
+#
+# Theme policy (fresh openSUSE + stock Plasma):
+#   - Default path does NOT install wallpaper-driven GTK/Qt/KDE colors.
+#   - Stock Breeze / BreezeClassic (Plasma) and Noctalia builtin stay until
+#     the user changes a wallpaper (Noctalia) or enables optional Waywallen.
+#   - GTK-Qt palette bridge is installed ONLY via optional/waywallen/.
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${HOME:?HOME is not set}"
@@ -22,7 +28,12 @@ fi
 
 if [[ -z "$WANT_WAYWALLEN" ]]; then
   if [[ "$MODE" == full ]]; then
-    read -r -p 'Optional Waywallen extras (palette bridge + autostart template)? [y/N]: ' WANT_WAYWALLEN
+    echo
+    echo "Theme note: without Waywallen you keep Noctalia’s builtin look and"
+    echo "stock Plasma (Breeze / BreezeClassic) for GTK/Qt. No hand-crafted"
+    echo "MaterialYouDark required. Waywallen (optional) derives Noctalia+GTK+Qt"
+    echo "from the active wallpaper on first change."
+    read -r -p 'Optional Waywallen extras (wallpaper→Noctalia+GTK+Qt palette + autostart)? [y/N]: ' WANT_WAYWALLEN
   else
     WANT_WAYWALLEN=n
   fi
@@ -82,6 +93,7 @@ install_tree() {
 
 echo "Mode: $MODE (FORCE=$FORCE — existing files are $([ "$FORCE" = 1 ] && echo 'backed up + replaced' || echo 'left alone'))"
 
+# Rice only: .config + .local. Never ships kdeglobals / GTK / qt5ct / MaterialYouDark.
 install_tree "$ROOT/.config"
 install_tree "$ROOT/.local"
 
@@ -97,6 +109,7 @@ mkdir -p "$HOME_DIR/.config/niri/cfg"
 # example file is safe to refresh — it is not the live outputs config
 cp -f "$ROOT/.config/niri/cfg/outputs.kdl.example" "$HOME_DIR/.config/niri/cfg/outputs.kdl.example"
 
+# Wallpaper → GTK/Qt/KDE bridge ONLY with optional Waywallen path (never by default).
 if [[ "$WANT_WAYWALLEN" == 1 ]]; then
   if [[ "$MODE" != full ]]; then
     echo "Note: Waywallen palette bridge expects Noctalia (full profile)."
@@ -110,6 +123,14 @@ if [[ "$FORCE" != 1 && "$SKIPPED" -gt 0 ]]; then
   echo "Existing configs were kept. To replace with rice defaults: FORCE=1 ./install.sh"
 fi
 echo "Next: configure monitors (see README) and restart niri / relog."
+echo
 if [[ "$WANT_WAYWALLEN" == 1 ]]; then
-  echo "Waywallen: see optional/waywallen/README.md"
+  echo "Theme: Waywallen extras enabled — first wallpaper change generates"
+  echo "  Noctalia + GTK + Qt palette (no manual MaterialYouDark). See:"
+  echo "  optional/waywallen/README.md"
+else
+  echo "Theme (default, no Waywallen):"
+  echo "  • Noctalia: builtin / soft until you set a wallpaper in Noctalia"
+  echo "  • GTK/Qt/KDE: stock Plasma (Breeze / BreezeClassic) — unchanged"
+  echo "  • Optional later: ./optional/waywallen/install.sh for wallpaper-driven colors"
 fi

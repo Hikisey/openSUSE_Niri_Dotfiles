@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Apply wallpaper-derived palette to GTK3/4, KDE color scheme, and qt5ct/qt6ct.
+# Prefer calling from waywallen-noctalia-palette after Noctalia wallpaper apply.
+# Does NOT enable Noctalia wallpaper drawing; does NOT touch niri / Materialgram / FL Studio.
+set -euo pipefail
+
+FORCE=0
+IMAGE=""
+for arg in "$@"; do
+  case "$arg" in
+    --force|-f) FORCE=1 ;;
+    -h|--help)
+      printf '%s\n' "Usage: waywallen-gtk-qt-palette [--force] [image.jpg]"
+      printf '%s\n' "  Default image: \$XDG_CACHE_HOME/noctalia/waywallen-main.jpg"
+      printf '%s\n' "  Scheme: NOCTALIA_WALLPAPER_SCHEME (default soft)"
+      printf '%s\n' "  Disable: touch ~/.config/waywallen/disable-gtk-qt-palette"
+      exit 0
+      ;;
+    -*)
+      printf 'Unknown option: %s\n' "$arg" >&2
+      exit 2
+      ;;
+    *)
+      IMAGE="$arg"
+      ;;
+  esac
+done
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/noctalia"
+CACHE_JPG="$CACHE_DIR/waywallen-main.jpg"
+IMAGE="${IMAGE:-$CACHE_JPG}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
+LOG="$STATE_DIR/waywallen-gtk-qt-palette.log"
+MARKER="$STATE_DIR/waywallen-gtk-qt-palette.ok"
+HASH_FILE="$STATE_DIR/waywallen-gtk-qt-palette.hash"
+TMPL_CFG="${WAYWALLEN_GTK_QT_TMPL:-$HOME/.config/waywallen/gtk-qt-palette-templates.toml}"
+SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-soft}"
+BACKUP_ROOT="${WAYWALLEN_GTK_QT_BACKUP_ROOT:-$HOME/.local/backups}"
+DISABLE_FLAG="${XDG_CONFIG_HOME:-$HOME/.config}/waywallen/disable-gtk-qt-palette"
+LIB="${WAYWALLEN_GTK_QT_LIB:-$HOME/.local/lib/waywallen-gtk-qt-palette-lib.py}"
+
+mkdir -p "$STATE_DIR" "$CACHE_DIR"
+
+log() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" "$*" | tee -a "$LOG" >/dev/null
+  if [[ -f "$LOG" ]] && [[ $(wc -c <"$LOG") -gt 200000 ]]; then
+    tail -n 200 "$LOG" >"$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+  fi
+}
+
+die() { log "ERROR: $*"; exit 1; }
+
+if [[ -f "$DISABLE_FLAG" ]]; then
+  log "disabled via $DISABLE_FLAG — exit 0"
+  exit 0
+fi
+
+[[ -f "$IMAGE" && -s "$IMAGE" ]] || die "image missing/empty: $IMAGE"
+[[ -f "$TMPL_CFG" ]] || die "template config missing: $TMPL_CFG"
+[[ -f "$LIB" ]] || die "helper missing: $LIB"
+command -v noctalia >/dev/null 2>&1 || die "missing command: noctalia"
+command -v python3 >/dev/null 2>&1 || die "missing command: python3"
+
+IMG_HASH=""
+if command -v sha256sum >/dev/null 2>&1; then
+  IMG_HASH="$(sha256sum "$IMAGE" | awk '{print $1}')"
+elif command -v sha256 >/dev/null 2>&1; then
+  IMG_HASH="$(sha256 -q "$IMAGE" 2>/dev/null || true)"
+fi
+STATE_PAYLOAD="scheme:$SCHEME"
+[[ -n "$IMG_HASH" ]] && STATE_PAYLOAD="scheme:$SCHEME sha256:$IMG_HASH"
+
+if [[ "$FORCE" -eq 0 && -f "$MARKER" && -f "$HASH_FILE" ]]; then
+  prev="$(cat "$HASH_FILE" 2>/dev/null || true)"
+  if [[ "$prev" == "$STATE_PAYLOAD" ]]; then
+    ok=1
+    [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/noctalia.css" ]] || ok=0
+    [[ -f "${XDG_DATA_HOME:-$HOME/.local/share}/color-schemes/noctalia.colors" ]] || ok=0
+    [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/qt5ct/colors/noctalia.conf" ]] || ok=0
+    [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/colors.css" ]] || ok=0
+    if [[ "$ok" -eq 1 ]]; then
+      log "unchanged $STATE_PAYLOAD — exit 0"
+      exit 0
+    fi
+    log "marker present but outputs missing — re-apply"
+  fi
+fi
+
+# --- first-write backup ---
+BACKUP_STAMP_FILE="$STATE_DIR/waywallen-gtk-qt-palette.backup-done"
+if [[ ! -f "$BACKUP_STAMP_FILE" ]]; then
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  bak="$BACKUP_ROOT/noctalia-gtk-qt-THEME-$stamp"
+  mkdir -p "$bak"
+  copy_if() {
+    local src="$1" dest="$2"
+    if [[ -e "$src" ]]; then
+      mkdir -p "$(dirname -- "$dest")"
+      cp -a -- "$src" "$dest"
+    fi
+  }
+  copy_if "$HOME/.config/gtk-3.0/gtk.css"            "$bak/gtk-3.0/gtk.css"
+  copy_if "$HOME/.config/gtk-3.0/colors.css"         "$bak/gtk-3.0/colors.css"
+  copy_if "$HOME/.config/gtk-3.0/noctalia.css"       "$bak/gtk-3.0/noctalia.css"
+  copy_if "$HOME/.config/gtk-3.0/settings.ini"       "$bak/gtk-3.0/settings.ini"
+  copy_if "$HOME/.config/gtk-4.0/gtk.css"            "$bak/gtk-4.0/gtk.css"
+  copy_if "$HOME/.config/gtk-4.0/colors.css"         "$bak/gtk-4.0/colors.css"
+  copy_if "$HOME/.config/gtk-4.0/noctalia.css"       "$bak/gtk-4.0/noctalia.css"
+  copy_if "$HOME/.config/gtk-4.0/settings.ini"       "$bak/gtk-4.0/settings.ini"
+  copy_if "$HOME/.config/kdeglobals"                 "$bak/kdeglobals"
+  copy_if "$HOME/.local/share/color-schemes/MaterialYouDark.colors" \
+          "$bak/color-schemes/MaterialYouDark.colors"
+  copy_if "$HOME/.local/share/color-schemes/noctalia.colors" \
+          "$bak/color-schemes/noctalia.colors"
+  copy_if "$HOME/.config/qt5ct/qt5ct.conf"           "$bak/qt5ct/qt5ct.conf"
+  copy_if "$HOME/.config/qt5ct/colors/noctalia.conf" "$bak/qt5ct/colors/noctalia.conf"
+  copy_if "$HOME/.config/qt6ct/qt6ct.conf"           "$bak/qt6ct/qt6ct.conf"
+  printf '%s\n' "$bak" >"$BACKUP_STAMP_FILE"
+  log "backed up theme files → $bak"
+fi
+
+JSON_TMP="$(mktemp "$STATE_DIR/waywallen-gtk-qt-palette.XXXXXX.json")"
+cleanup() { rm -f "$JSON_TMP"; }
+trap cleanup EXIT
+
+# Emit palette JSON (same scheme as Noctalia wallpaper) for breeze colors.css + reporting.
+noctalia theme "$IMAGE" --scheme "$SCHEME" --dark -o "$JSON_TMP" >/dev/null \
+  || die "noctalia theme JSON failed on $IMAGE"
+
+# Render GTK / KDE / qt5ct templates (no niri).
+noctalia theme "$IMAGE" --scheme "$SCHEME" --dark --default-mode dark -c "$TMPL_CFG" \
+  || die "noctalia theme template render failed"
+
+# Breeze colors.css + MaterialYouDark.colors + kdeglobals Colors + qt5ct pointer.
+SAMPLE="$(python3 "$LIB" "$JSON_TMP" "$HOME")" || die "helper failed"
+log "sample colors: $SAMPLE"
+
+# Apply KDE color scheme (updates session when Plasma tooling works under niri).
+if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
+  if plasma-apply-colorscheme MaterialYouDark >/dev/null 2>&1; then
+    log "plasma-apply-colorscheme MaterialYouDark ok"
+  elif plasma-apply-colorscheme noctalia >/dev/null 2>&1; then
+    log "plasma-apply-colorscheme noctalia ok"
+  else
+    log "WARN: plasma-apply-colorscheme failed — kdeglobals already merged by helper"
+  fi
+fi
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+  kwriteconfig6 --file kdeglobals --group General --key ColorScheme MaterialYouDark || true
+elif command -v kwriteconfig5 >/dev/null 2>&1; then
+  kwriteconfig5 --file kdeglobals --group General --key ColorScheme MaterialYouDark || true
+fi
+
+# Dark preference for portals / libadwaita (do not force gtk-theme name away from Breeze).
+if command -v gsettings >/dev/null 2>&1; then
+  gsettings set org.gnome.desktop.interface color-scheme prefer-dark >/dev/null 2>&1 || true
+fi
+
+printf '%s\n' "$STATE_PAYLOAD" >"$HASH_FILE"
+touch "$MARKER"
+trap - EXIT
+rm -f "$JSON_TMP"
+
+scheme_now="$(noctalia msg color-scheme-get 2>/dev/null || echo '?')"
+log "applied GTK/Qt/KDE from $IMAGE scheme=$SCHEME noctalia=[$scheme_now] $STATE_PAYLOAD"
+printf 'OK gtk-qt-palette scheme=%s image=%s sample=%s\n' "$SCHEME" "$IMAGE" "$SAMPLE"
+exit 0
