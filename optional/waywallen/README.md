@@ -44,7 +44,42 @@ Then:
 
 `sqlite3`, `noctalia`, and one of `magick` / `convert` / `ffmpeg`.
 
-## Disable
+## Rollback — remove Waywallen, return to Noctalia wallpapers
+
+Niri does not paint wallpapers by itself. After Waywallen is gone you want
+**Noctalia wallpaper drawing** (or another wallpaper daemon) again.
+
+```bash
+# from a clone of this repo:
+./optional/waywallen/uninstall.sh
+
+# also remove the bridge binary:
+REMOVE_BRIDGE_BIN=1 ./optional/waywallen/uninstall.sh
+```
+
+What that does:
+
+- disables/stops the palette path + timer + service
+- removes those systemd user units
+- removes `~/.config/autostart/waywallen.desktop`
+
+Then manually:
+
+1. Quit Waywallen (`killall waywallen` or from its tray/UI).
+2. Turn Noctalia wallpaper **on** (`[wallpaper] enabled = true`) and reload.
+3. Open the wallpaper panel (`Mod+Shift+Return` in this rice) and pick an image.
+4. Optional: `noctalia msg color-scheme-set wallpaper soft`
+
+The AppImage under `~/Applications/` is **not** deleted (you may want it later).
+Delete it yourself if you are done with Wallpaper Engine.
+
+### Caveats this does not fix
+
+Waywallen / Wallpaper Engine bugs (FPS, wrong display, stuck workshop id) are
+upstream. Rollback only removes **our** bridge and autostart so Noctalia can
+own the desktop background again.
+
+## Disable (keep files)
 
 ```bash
 systemctl --user disable --now \

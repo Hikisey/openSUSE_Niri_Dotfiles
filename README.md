@@ -51,6 +51,15 @@ DOTFILES_MODE=full INSTALL_WAYWALLEN=1 SKIP_PACKAGES=1 ./install.sh
 4. Point Noctalia at your real outputs
 5. If you enabled Waywallen extras: put the AppImage at `~/Applications/waywallen.appimage` (see `optional/waywallen/README.md`)
 
+### Rollback Waywallen → Noctalia wallpapers
+
+```bash
+./optional/waywallen/uninstall.sh
+```
+
+Then quit Waywallen, set Noctalia `[wallpaper] enabled = true`, reload, and pick
+a wallpaper (`Mod+Shift+Return`). Details: `optional/waywallen/README.md`.
+
 ### Autostart template (Waywallen)
 
 A template is a Desktop Entry with `@HOME@` placeholders. Install copies it to
