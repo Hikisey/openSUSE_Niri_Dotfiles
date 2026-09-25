@@ -1,0 +1,402 @@
+#!/usr/bin/env bash
+# Bridge: Waywallen active wallpaper → Noctalia wallpaper-derived palette.
+# Does NOT enable Noctalia wallpaper drawing (keeps [wallpaper] enabled = false).
+set -euo pipefail
+
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    --force|-f) FORCE=1 ;;
+    -h|--help)
+      printf '%s\n' "Usage: waywallen-noctalia-palette [--force]"
+      exit 0
+      ;;
+  esac
+done
+
+MAIN_CONNECTOR="${WAYWALLEN_MAIN_CONNECTOR:-}"
+# Optional last-resort: named display section in Waywallen config (often stale under Niri).
+# Set e.g. WAYWALLEN_MAIN_CONNECTOR=DP-1 if you need that fallback.
+WW_CONFIG="${WAYWALLEN_CONFIG:-$HOME/.config/waywallen/config.toml}"
+WW_DB="${WAYWALLEN_DB:-$HOME/.local/share/waywallen/waywallen-v2.db}"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/noctalia"
+CACHE_JPG="$CACHE_DIR/waywallen-main.jpg"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
+LOG="$STATE_DIR/waywallen-noctalia-palette.log"
+STATE_FILE="$STATE_DIR/waywallen-noctalia-palette.state"
+THEME_MARKER="$STATE_DIR/waywallen-noctalia-palette.theme-ok"
+WALLPAPER_SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-soft}"
+
+mkdir -p "$CACHE_DIR" "$STATE_DIR"
+
+log() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" "$*" | tee -a "$LOG" >/dev/null
+  if [[ -f "$LOG" ]] && [[ $(wc -c <"$LOG") -gt 200000 ]]; then
+    tail -n 200 "$LOG" >"$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+  fi
+}
+
+die() { log "ERROR: $*"; exit 1; }
+
+need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+
+need_cmd sqlite3
+need_cmd noctalia
+
+[[ -f "$WW_CONFIG" ]] || die "Waywallen config not found: $WW_CONFIG"
+[[ -f "$WW_DB" ]] || die "Waywallen DB not found: $WW_DB"
+
+# Extract workshop id from a process cmdline (or empty).
+_extract_workshop_id() {
+  local line="$1" id=""
+  if [[ "$line" =~ --workshop_id(=|[[:space:]]+)([0-9]+) ]]; then
+    id="${BASH_REMATCH[2]}"
+  elif [[ "$line" =~ /431960/([0-9]+)(/|[[:space:]]|$) ]]; then
+    id="${BASH_REMATCH[1]}"
+  elif [[ "$line" =~ [[:space:]]([0-9]{6,})([[:space:]]|$) ]]; then
+    # trailing bare workshop id (weweb often ends with it)
+    id="${BASH_REMATCH[1]}"
+  fi
+  printf '%s' "$id"
+}
+
+# 1) Running renderers — prefer wescene over weweb; one main scene.
+resolve_from_processes() {
+  local line kind id
+  local -a scenes=() webs=()
+  # Main renderer only (skip chromium helper --type=…)
+  while IFS= read -r line; do
+    [[ "$line" == *'--type='* ]] && continue
+    id="$(_extract_workshop_id "$line")"
+    [[ -n "$id" ]] || continue
+    if [[ "$line" == *wescene-renderer* ]]; then
+      scenes+=("$id")
+    elif [[ "$line" == *weweb-renderer* ]]; then
+      webs+=("$id")
+    fi
+  done < <(pgrep -af 'waywallen-wescene-renderer|waywallen-weweb-renderer' 2>/dev/null || true)
+
+  if ((${#scenes[@]} > 0)); then
+    # Prefer scene matching global last_wallpaper's external_id when multiple.
+    local prefer=""
+    prefer="$(awk '
+      BEGIN{in_g=0}
+      $0=="[global]"{in_g=1;next}
+      $0 ~ /^\[/{in_g=0}
+      in_g && $0 ~ /^last_wallpaper[[:space:]]*=/{
+        gsub(/"/,"",$3); print $3; exit
+      }
+    ' "$WW_CONFIG" 2>/dev/null || true)"
+    if [[ -n "$prefer" ]]; then
+      local ext
+      ext=$(sqlite3 "$WW_DB" "SELECT COALESCE(external_id,'') FROM item WHERE id=CAST('$prefer' AS INTEGER) LIMIT 1;" 2>/dev/null || true)
+      if [[ -n "$ext" ]]; then
+        for id in "${scenes[@]}"; do
+          if [[ "$id" == "$ext" ]]; then
+            printf 'workshop\t%s' "$id"
+            return 0
+          fi
+        done
+      fi
+    fi
+    printf 'workshop\t%s' "${scenes[0]}"
+    return 0
+  fi
+  if ((${#webs[@]} > 0)); then
+    printf 'workshop\t%s' "${webs[0]}"
+    return 0
+  fi
+  return 1
+}
+
+# Parse last_wallpaper from a named display header match / global / layer-*
+_toml_last_wallpaper_in_sections() {
+  # Args: mode = global | layer | connector
+  local mode="$1" connector="${2:-}"
+  awk -v mode="$mode" -v c="$connector" '
+    BEGIN { insec=0; best="" }
+    mode=="global" {
+      if ($0 == "[global]") { insec=1; next }
+      if ($0 ~ /^\[/) { insec=0 }
+      if (insec && $0 ~ /^last_wallpaper[[:space:]]*=/) {
+        gsub(/"/, "", $3); print $3; exit
+      }
+      next
+    }
+    mode=="layer" {
+      if ($0 ~ /^\[display\.layer-/) { insec=1; next }
+      if ($0 ~ /^\[/) { insec=0 }
+      if (insec && $0 ~ /^last_wallpaper[[:space:]]*=/) {
+        gsub(/"/, "", $3); best=$3
+        insec=0
+      }
+      next
+    }
+    mode=="connector" {
+      if ($0 ~ /^\[display\./) {
+        insec = (index($0, ":" c) > 0)
+        next
+      }
+      if (insec && $0 ~ /^last_wallpaper[[:space:]]*=/) {
+        gsub(/"/, "", $3); print $3; exit
+      }
+    }
+    END {
+      if (mode=="layer" && best != "") print best
+    }
+  ' "$WW_CONFIG"
+}
+
+# Collect layer-* last_wallpaper values (file order); print all, last is "newest".
+_toml_all_layer_wallpapers() {
+  awk '
+    BEGIN { insec=0 }
+    $0 ~ /^\[display\.layer-/ { insec=1; next }
+    $0 ~ /^\[/ { insec=0 }
+    insec && $0 ~ /^last_wallpaper[[:space:]]*=/ {
+      gsub(/"/, "", $3); print $3; insec=0
+    }
+  ' "$WW_CONFIG"
+}
+
+# Map item id → prefer scene type when choosing among layer candidates.
+_item_is_sceneish() {
+  local iid="$1" typ path
+  typ=$(sqlite3 "$WW_DB" "SELECT COALESCE(type,'') FROM item WHERE id=CAST('$iid' AS INTEGER) LIMIT 1;" 2>/dev/null || true)
+  path=$(sqlite3 "$WW_DB" "SELECT COALESCE(path,'') FROM item WHERE id=CAST('$iid' AS INTEGER) LIMIT 1;" 2>/dev/null || true)
+  [[ "$typ" == *scene* || "$path" == *scene.pkg* || "$path" == */scene* ]]
+}
+
+resolve_from_config() {
+  local id layers=() lid
+  id="$(_toml_last_wallpaper_in_sections global)"
+  if [[ -n "$id" ]]; then
+    printf 'item\t%s' "$id"
+    return 0
+  fi
+
+  mapfile -t layers < <(_toml_all_layer_wallpapers)
+  if ((${#layers[@]} > 0)); then
+    # Prefer a scene-ish layer id (scan newest→oldest), else newest.
+    local i
+    for ((i=${#layers[@]}-1; i>=0; i--)); do
+      lid="${layers[$i]}"
+      if _item_is_sceneish "$lid"; then
+        printf 'item\t%s' "$lid"
+        return 0
+      fi
+    done
+    printf 'item\t%s' "${layers[-1]}"
+    return 0
+  fi
+
+  if [[ -n "$MAIN_CONNECTOR" ]]; then
+    id="$(_toml_last_wallpaper_in_sections connector "$MAIN_CONNECTOR")"
+    if [[ -n "$id" ]]; then
+      printf 'item\t%s' "$id"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+KIND=""
+REF=""
+SOURCE=""
+
+if resolved="$(resolve_from_processes)"; then
+  KIND="${resolved%%$'\t'*}"
+  REF="${resolved#*$'\t'}"
+  SOURCE="process"
+elif resolved="$(resolve_from_config)"; then
+  KIND="${resolved%%$'\t'*}"
+  REF="${resolved#*$'\t'}"
+  SOURCE="config"
+else
+  die "could not resolve active wallpaper (no renderer, no config last_wallpaper)"
+fi
+
+# Resolve DB row from workshop external_id or item id
+if [[ "$KIND" == "workshop" ]]; then
+  ROW=$(sqlite3 -separator $'\t' "$WW_DB" "
+SELECT i.id,
+       COALESCE(i.preview_path, ''),
+       COALESCE(i.path, ''),
+       COALESCE(i.external_id, ''),
+       COALESCE(l.path, '')
+FROM item i
+LEFT JOIN library l ON l.id = i.library_id
+WHERE i.external_id = '$REF'
+LIMIT 1;
+") || die "sqlite query failed for workshop $REF"
+  [[ -n "$ROW" ]] || die "workshop external_id $REF not found in DB"
+else
+  ROW=$(sqlite3 -separator $'\t' "$WW_DB" "
+SELECT i.id,
+       COALESCE(i.preview_path, ''),
+       COALESCE(i.path, ''),
+       COALESCE(i.external_id, ''),
+       COALESCE(l.path, '')
+FROM item i
+LEFT JOIN library l ON l.id = i.library_id
+WHERE i.id = CAST('$REF' AS INTEGER)
+LIMIT 1;
+") || die "sqlite query failed for item $REF"
+  [[ -n "$ROW" ]] || die "item id $REF not found in DB"
+fi
+
+IFS=$'\t' read -r ITEM_ID PREVIEW_REL ITEM_REL EXTERNAL_ID LIB_ROOT <<<"$ROW"
+
+# State key: prefer workshop id when known (stable across layer renames)
+if [[ -n "$EXTERNAL_ID" ]]; then
+  STATE_KEY="w:$EXTERNAL_ID"
+else
+  STATE_KEY="i:$ITEM_ID"
+fi
+
+cache_ok=0
+if [[ -f "$CACHE_JPG" ]] && [[ -s "$CACHE_JPG" ]]; then
+  cache_ok=1
+fi
+
+if [[ "$FORCE" -eq 0 && -f "$STATE_FILE" ]]; then
+  prev="$(cat "$STATE_FILE" 2>/dev/null || true)"
+  # Accept legacy bare item-id state for same wallpaper
+  if [[ "$prev" == "$STATE_KEY" || "$prev" == "$ITEM_ID" || ( -n "$EXTERNAL_ID" && "$prev" == "w:$EXTERNAL_ID" ) ]]; then
+    if [[ "$cache_ok" -eq 1 ]]; then
+      if [[ ! -f "$THEME_MARKER" ]]; then
+        noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null 2>&1 || true
+        touch "$THEME_MARKER"
+      fi
+      log "unchanged $STATE_KEY item_id=$ITEM_ID source=$SOURCE — exit 0"
+      exit 0
+    fi
+    log "state matches $STATE_KEY but cache missing/empty — re-apply"
+  fi
+fi
+
+abs_join() {
+  local root="$1" rel="$2"
+  if [[ -z "$rel" ]]; then
+    printf ''
+    return
+  fi
+  if [[ "$rel" = /* ]]; then
+    printf '%s' "$rel"
+  elif [[ -n "$root" ]]; then
+    printf '%s/%s' "${root%/}" "$rel"
+  else
+    printf '%s' "$rel"
+  fi
+}
+
+CANDIDATES=()
+PREVIEW_ABS="$(abs_join "$LIB_ROOT" "$PREVIEW_REL")"
+[[ -n "$PREVIEW_ABS" ]] && CANDIDATES+=("$PREVIEW_ABS")
+
+if [[ -n "$EXTERNAL_ID" ]]; then
+  WS_BASE=""
+  if [[ -n "$LIB_ROOT" ]]; then
+    WS_BASE="$LIB_ROOT/steamapps/workshop/content/431960/$EXTERNAL_ID"
+  else
+    WS_BASE="$HOME/.local/share/Steam/steamapps/workshop/content/431960/$EXTERNAL_ID"
+  fi
+  for name in preview.jpg preview.png preview.webp preview.jpeg Preview.jpg preview.gif; do
+    CANDIDATES+=("$WS_BASE/$name")
+  done
+fi
+
+ITEM_ABS="$(abs_join "$LIB_ROOT" "$ITEM_REL")"
+case "${ITEM_ABS,,}" in
+  *.jpg|*.jpeg|*.png|*.webp|*.gif) CANDIDATES+=("$ITEM_ABS") ;;
+esac
+
+SRC=""
+for c in "${CANDIDATES[@]}"; do
+  if [[ -n "$c" && -f "$c" ]]; then
+    SRC="$c"
+    break
+  fi
+done
+
+[[ -n "$SRC" ]] || die "no preview image found for item $ITEM_ID (external=$EXTERNAL_ID)"
+
+ext_lower="${SRC##*.}"
+ext_lower="${ext_lower,,}"
+TMP="$CACHE_JPG.tmp.$$"
+
+cleanup() { rm -f "$TMP" "$CACHE_DIR/waywallen-apply-$$.jpg" 2>/dev/null || true; }
+trap cleanup EXIT
+
+encode_jpeg() {
+  local in="$1" frame_gif="$2"
+  if command -v magick >/dev/null 2>&1; then
+    if [[ "$frame_gif" == 1 ]]; then
+      magick "${in}[0]" -strip -quality 92 jpeg:"$TMP" || die "magick failed on $in"
+    else
+      magick "$in" -strip -quality 92 jpeg:"$TMP" || die "magick convert failed on $in"
+    fi
+  elif command -v convert >/dev/null 2>&1; then
+    if [[ "$frame_gif" == 1 ]]; then
+      convert "${in}[0]" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
+    else
+      convert "$in" -strip -quality 92 jpeg:"$TMP" || die "convert failed on $in"
+    fi
+  elif command -v ffmpeg >/dev/null 2>&1; then
+    ffmpeg -y -loglevel error -i "$in" -frames:v 1 -q:v 3 "$TMP.jpg" \
+      || die "ffmpeg failed on $in"
+    mv -f "$TMP.jpg" "$TMP"
+  else
+    die "need magick/convert/ffmpeg to encode JPEG"
+  fi
+}
+
+case "$ext_lower" in
+  gif) encode_jpeg "$SRC" 1 ;;
+  webp|png|jpeg|jpg) encode_jpeg "$SRC" 0 ;;
+  *) die "unsupported preview type: $ext_lower ($SRC)" ;;
+esac
+
+mv -f "$TMP" "$CACHE_JPG"
+trap - EXIT
+
+ensure_theme() {
+  local cur
+  cur="$(noctalia msg color-scheme-get 2>/dev/null || true)"
+  if [[ "$cur" != wallpaper* ]]; then
+    noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null
+    log "set color-scheme wallpaper $WALLPAPER_SCHEME (was: $cur)"
+  fi
+  touch "$THEME_MARKER"
+}
+
+ensure_theme
+
+# Bust path-identity caches: set via unique copy first, then stable path
+APPLY_TMP="$CACHE_DIR/waywallen-apply-$$.jpg"
+cp -f "$CACHE_JPG" "$APPLY_TMP"
+noctalia msg wallpaper-set "$APPLY_TMP" >/dev/null 2>&1 || true
+noctalia msg wallpaper-set "$CACHE_JPG" >/dev/null
+rm -f "$APPLY_TMP"
+
+# Re-assert scheme so palette regenerates from new wallpaper
+noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null
+
+# Extra nudge when content changed (same stable path)
+noctalia msg config-reload >/dev/null 2>&1 || true
+
+# Verify wallpaper.enabled stays false (warn only)
+en="$(awk '
+  BEGIN{inw=0}
+  $0=="[wallpaper]"{inw=1;next}
+  $0 ~ /^\[/{inw=0}
+  inw && $0 ~ /^enabled[[:space:]]*=/{print $3; exit}
+' "${XDG_STATE_HOME:-$HOME/.local/state}/noctalia/settings.toml" 2>/dev/null || true)"
+if [[ "$en" == "true" ]]; then
+  log "WARN: [wallpaper] enabled became true — leaving as-is (keep false; check manually)"
+fi
+
+printf '%s\n' "$STATE_KEY" >"$STATE_FILE"
+scheme="$(noctalia msg color-scheme-get 2>/dev/null || echo '?')"
+log "applied $STATE_KEY item_id=$ITEM_ID external=$EXTERNAL_ID source=$SOURCE src=$SRC cache=$CACHE_JPG scheme=[$scheme]"
+exit 0

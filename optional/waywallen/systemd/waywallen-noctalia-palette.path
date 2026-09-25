@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch Waywallen config.toml for wallpaper changes (Noctalia palette bridge)
+
+[Path]
+PathModified=%h/.config/waywallen/config.toml
+Unit=waywallen-noctalia-palette.service
+TriggerLimitIntervalSec=10
+TriggerLimitBurst=4
+
+[Install]
+WantedBy=default.target

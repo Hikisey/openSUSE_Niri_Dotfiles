@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync Noctalia palette from Waywallen active wallpaper preview
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/waywallen-noctalia-palette
+ExecStartPre=/bin/sleep 0.3
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

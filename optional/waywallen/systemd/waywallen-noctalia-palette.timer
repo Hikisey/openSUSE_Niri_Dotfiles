@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodically sync Noctalia palette from Waywallen active wallpaper
+Documentation=file://%h/.config/waywallen/noctalia-palette-bridge.md
+
+[Timer]
+OnStartupSec=15
+OnUnitActiveSec=45s
+AccuracySec=5s
+Persistent=false
+Unit=waywallen-noctalia-palette.service
+
+[Install]
+WantedBy=timers.target

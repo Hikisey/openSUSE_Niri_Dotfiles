@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Waywallen
+Comment=Wallpaper Manager for Linux (Wallpaper Engine on Wayland)
+# After install.sh: Exec points at ~/Applications/waywallen.appimage
+# Download the AppImage yourself — it is NOT shipped in this repo.
+Exec=@HOME@/Applications/waywallen.appimage --no-ui
+TryExec=@HOME@/Applications/waywallen.appimage
+Icon=@HOME@/Applications/.icons/waywallen
+Terminal=false
+StartupNotify=false
+Categories=Graphics;Qt;
+Keywords=wallpaper;pipewire;vulkan;
+X-GNOME-Autostart-enabled=true

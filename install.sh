@@ -4,6 +4,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${HOME:?HOME is not set}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 MODE="${DOTFILES_MODE:-}"
+WANT_WAYWALLEN="${INSTALL_WAYWALLEN:-}"
 
 if [[ -z "$MODE" ]]; then
   read -r -p 'Profile (1=full with Noctalia / 2=tech): ' MODE
@@ -14,11 +15,35 @@ else
   MODE=tech
 fi
 
+# Waywallen is optional: AppImage is NOT shipped; we only install bridge + autostart template + units.
+if [[ -z "$WANT_WAYWALLEN" ]]; then
+  if [[ "$MODE" == full ]]; then
+    read -r -p 'Optional Waywallen extras (palette bridge + autostart template)? [y/N]: ' WANT_WAYWALLEN
+  else
+    WANT_WAYWALLEN=n
+  fi
+fi
+case "${WANT_WAYWALLEN,,}" in
+  y|yes|1|true) WANT_WAYWALLEN=1 ;;
+  *) WANT_WAYWALLEN=0 ;;
+esac
+
 backup() {
   local f="$1"
   if [[ -e "$f" && ! -L "$f" ]]; then
     mv -- "$f" "$f.bak.$STAMP"
   fi
+}
+
+write_rewritten() {
+  local src="$1" dst="$2"
+  mkdir -p "$(dirname -- "$dst")"
+  backup "$dst"
+  local content
+  content=$(<"$src")
+  content="${content//@HOME@/$HOME_DIR}"
+  printf '%s\n' "$content" > "$dst"
+  if [[ -x "$src" ]]; then chmod +x "$dst"; fi
 }
 
 if [[ "${SKIP_PACKAGES:-0}" != 1 ]] && command -v zypper >/dev/null 2>&1; then
@@ -40,12 +65,7 @@ install_tree() {
       esac
     fi
     dst="$HOME_DIR/$rel"
-    mkdir -p "$(dirname -- "$dst")"
-    backup "$dst"
-    content=$(<"$src")
-    content="${content//@HOME@/$HOME_DIR}"
-    printf '%s\n' "$content" > "$dst"
-    if [[ -x "$src" ]]; then chmod +x "$dst"; fi
+    write_rewritten "$src" "$dst"
   done < <(find "$src_root" -type f -print0)
 }
 
@@ -60,6 +80,54 @@ fi
 mkdir -p "$HOME_DIR/.config/niri/cfg"
 cp -f "$ROOT/.config/niri/cfg/outputs.kdl.example" "$HOME_DIR/.config/niri/cfg/outputs.kdl.example"
 
+install_waywallen_extras() {
+  local opt="$ROOT/optional/waywallen"
+  [[ -d "$opt" ]] || { echo "optional/waywallen missing — skip"; return 0; }
+
+  echo "Installing optional Waywallen extras…"
+  write_rewritten "$opt/bin/waywallen-noctalia-palette" "$HOME_DIR/.local/bin/waywallen-noctalia-palette"
+  chmod +x "$HOME_DIR/.local/bin/waywallen-noctalia-palette"
+
+  mkdir -p "$HOME_DIR/.config/systemd/user"
+  for u in waywallen-noctalia-palette.path \
+           waywallen-noctalia-palette.service \
+           waywallen-noctalia-palette.timer; do
+    write_rewritten "$opt/systemd/$u" "$HOME_DIR/.config/systemd/user/$u"
+  done
+
+  mkdir -p "$HOME_DIR/.config/autostart" "$HOME_DIR/.config/waywallen" "$HOME_DIR/Applications"
+  write_rewritten "$opt/autostart/waywallen.desktop.template" \
+    "$HOME_DIR/.config/autostart/waywallen.desktop"
+  write_rewritten "$opt/docs/noctalia-palette-bridge.md" \
+    "$HOME_DIR/.config/waywallen/noctalia-palette-bridge.md"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload || true
+    systemctl --user enable --now waywallen-noctalia-palette.path \
+      waywallen-noctalia-palette.timer 2>/dev/null \
+      || echo "Could not enable user units yet — run after first login session."
+  fi
+
+  echo
+  echo "Waywallen extras installed."
+  echo "  • Download AppImage → $HOME_DIR/Applications/waywallen.appimage"
+  echo "  • Autostart: $HOME_DIR/.config/autostart/waywallen.desktop"
+  echo "  • Docs: optional/waywallen/README.md"
+  if [[ ! -x "$HOME_DIR/Applications/waywallen.appimage" ]]; then
+    echo "  • AppImage not found yet — autostart will stay inert until you add it."
+  fi
+}
+
+if [[ "$WANT_WAYWALLEN" == 1 ]]; then
+  if [[ "$MODE" != full ]]; then
+    echo "Note: Waywallen palette bridge expects Noctalia (full profile)."
+  fi
+  install_waywallen_extras
+fi
+
 echo
-echo "Done ($MODE). Backups use suffix .bak.$STAMP"
+echo "Done (profile=$MODE, waywallen=$WANT_WAYWALLEN). Backups use suffix .bak.$STAMP"
 echo "Next: configure monitors (see README) and restart niri / relog."
+if [[ "$WANT_WAYWALLEN" == 1 ]]; then
+  echo "Waywallen: see optional/waywallen/README.md"
+fi
