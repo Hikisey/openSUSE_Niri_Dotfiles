@@ -2,32 +2,12 @@
 
 Portable **openSUSE Tumbleweed** + **Niri** rice (optional Noctalia Shell).
 
-Designed to share cleanly: **no personal monitors, no cursor theme/size, no per-machine window pinning, no game-specific rules**.
-
-## Included
-
-- Niri config split under `.config/niri/`
-- Optional Noctalia colors + shell config (monitor lists cleared)
-- Kitty config
-- Wayland helpers (screenshot / record / OCR / cast privacy / game-mode)
-- `packages/zypper.txt`
-- `install.sh` (backups + `@HOME@` rewrite)
-- Optional **Waywallen** extras under `optional/waywallen/` (asked during install)
-
-## Not included (on purpose)
-
-- `output { }` modes / positions / Hz
-- Cursor theme / XCURSOR_*
-- `open-on-output` layout pins
-- Per-game window rules
-- Second-monitor autostart layout scripts
-- Wallpaper dumps / live palette caches
-- Waywallen / Wallpaper Engine **AppImage** (download yourself)
+No personal monitors, cursor theme, window pinning, or game-specific rules.
 
 ## Install
 
 ```bash
-git clone https://github.com/<YOU>/openSUSE_Niri_Dotfiles.git
+git clone https://github.com/Hikisey/openSUSE_Niri_Dotfiles.git
 cd openSUSE_Niri_Dotfiles
 ./install.sh
 ```
@@ -35,12 +15,12 @@ cd openSUSE_Niri_Dotfiles
 Prompts:
 
 1. **Profile** — `full` (Noctalia) or `tech` (without Noctalia bits)
-2. **Waywallen extras?** (only meaningful with `full`) — palette bridge + systemd units + autostart **template** (no AppImage)
+2. **Waywallen extras?** — only with `full`; palette bridge + systemd + autostart template (AppImage not included)
 
-Non-interactive:
+Skip package install:
 
 ```bash
-DOTFILES_MODE=full INSTALL_WAYWALLEN=1 SKIP_PACKAGES=1 ./install.sh
+SKIP_PACKAGES=1 ./install.sh
 ```
 
 ## After install
@@ -49,23 +29,36 @@ DOTFILES_MODE=full INSTALL_WAYWALLEN=1 SKIP_PACKAGES=1 ./install.sh
 2. Set cursor in `cfg/misc.kdl` if you want
 3. Review keybinds for your apps
 4. Point Noctalia at your real outputs
-5. If you enabled Waywallen extras: put the AppImage at `~/Applications/waywallen.appimage` (see `optional/waywallen/README.md`)
+5. If you enabled Waywallen: put the AppImage at `~/Applications/waywallen.appimage`
 
-### Rollback Waywallen → Noctalia wallpapers
+## Waywallen without reinstalling the rice
+
+Turn Off / On without running `./install.sh` again (that would overwrite your configs):
 
 ```bash
+# Off → back to Noctalia wallpapers
 ./optional/waywallen/uninstall.sh
+
+# On again later (only extras; Niri/Noctalia/Kitty stay as you left them)
+./optional/waywallen/install.sh
 ```
 
-Then quit Waywallen, set Noctalia `[wallpaper] enabled = true`, reload, and pick
-a wallpaper (`Mod+Shift+Return`). Details: `optional/waywallen/README.md`.
+Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 
-### Autostart template (Waywallen)
+## Included
 
-A template is a Desktop Entry with `@HOME@` placeholders. Install copies it to
-`~/.config/autostart/waywallen.desktop` and rewrites paths. It does not download
-Waywallen for you.
+- Niri config under `.config/niri/`
+- Optional Noctalia colors + shell config (monitor lists cleared)
+- Kitty + Wayland helpers (screenshot / record / OCR / cast privacy / game-mode)
+- `packages/zypper.txt`
+- Optional Waywallen extras under `optional/waywallen/`
 
-## Portability notes
+## Not included
 
-See `docs/PORTABILITY.md`.
+- Monitor `output { }` blocks, cursor theme, layout pins, game window rules
+- Wallpaper dumps / live palette caches
+- Waywallen AppImage
+
+## Portability
+
+See [`docs/PORTABILITY.md`](docs/PORTABILITY.md).
