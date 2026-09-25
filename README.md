@@ -2,7 +2,12 @@
 
 Portable **openSUSE Tumbleweed** + **Niri** rice (optional Noctalia Shell).
 
+**Who this is for:** a fresh openSUSE install with stock KDE Plasma — no prior
+ricing, no personal dotfiles to preserve. First `./install.sh` lays down the
+full desktop stack (Niri + helpers + optional Noctalia).
+
 No personal monitors, cursor theme, window pinning, or game-specific rules.
+
 
 ## Install
 
@@ -31,13 +36,14 @@ SKIP_PACKAGES=1 ./install.sh
 4. Point Noctalia at your real outputs
 5. If you enabled Waywallen: put the AppImage at `~/Applications/waywallen.appimage`
 
-## Safe installs
+## Fresh install vs re-run
 
-`./install.sh` is **safe by default**: it only writes missing files and leaves
-your existing Niri / Noctalia / Kitty configs alone. Re-running it will not
-clobber customizations.
+On a **new** openSUSE + stock Plasma machine there is nothing to clash with —
+`./install.sh` writes the full rice.
 
-To replace everything with rice defaults (old files get `.bak.<timestamp>`):
+If you run it again later (or already customized configs), it **skips existing
+files** by default so it does not wipe your edits. To force rice defaults back
+(old files get `.bak.<timestamp>`):
 
 ```bash
 FORCE=1 ./install.sh
