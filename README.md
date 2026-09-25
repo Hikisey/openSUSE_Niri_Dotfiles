@@ -31,15 +31,27 @@ SKIP_PACKAGES=1 ./install.sh
 4. Point Noctalia at your real outputs
 5. If you enabled Waywallen: put the AppImage at `~/Applications/waywallen.appimage`
 
-## Waywallen without reinstalling the rice
+## Safe installs
 
-Turn Off / On without running `./install.sh` again (that would overwrite your configs):
+`./install.sh` is **safe by default**: it only writes missing files and leaves
+your existing Niri / Noctalia / Kitty configs alone. Re-running it will not
+clobber customizations.
+
+To replace everything with rice defaults (old files get `.bak.<timestamp>`):
+
+```bash
+FORCE=1 ./install.sh
+```
+
+## Waywallen on / off
+
+Prefer the dedicated scripts (they only touch Waywallen extras):
 
 ```bash
 # Off → back to Noctalia wallpapers
 ./optional/waywallen/uninstall.sh
 
-# On again later (only extras; Niri/Noctalia/Kitty stay as you left them)
+# On again (extras only; rice configs untouched)
 ./optional/waywallen/install.sh
 ```
 

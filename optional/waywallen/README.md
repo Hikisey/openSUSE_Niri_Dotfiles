@@ -3,6 +3,9 @@
 Not installed by default. The main `./install.sh` can ask once, or you use the
 scripts below anytime.
 
+> Main `./install.sh` also skips existing rice files unless `FORCE=1`.
+> Still prefer these scripts to toggle Waywallen only.
+
 ## Quick use
 
 ```bash

@@ -5,6 +5,7 @@ set -euo pipefail
 OPT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${HOME:?HOME is not set}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+FORCE="${FORCE:-0}"
 
 backup() {
   local f="$1"
@@ -15,8 +16,12 @@ backup() {
 
 write_rewritten() {
   local src="$1" dst="$2"
+  if [[ -e "$dst" && "$FORCE" != 1 ]]; then
+    echo "keep existing: $dst"
+    return 0
+  fi
   mkdir -p "$(dirname -- "$dst")"
-  backup "$dst"
+  if [[ -e "$dst" ]]; then backup "$dst"; fi
   local content
   content=$(<"$src")
   content="${content//@HOME@/$HOME_DIR}"
