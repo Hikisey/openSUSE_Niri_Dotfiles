@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+pidfile="${XDG_RUNTIME_DIR:-/tmp}/niri-record-tech.pid"
+outdir="${HOME}/Videos"; mkdir -p "$outdir"
+if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then kill -INT "$(cat "$pidfile")"; rm -f "$pidfile"; notify-send -a 'Screen record' 'Запись остановлена'; exit 0; fi
+command -v wf-recorder >/dev/null || { notify-send 'Нет wf-recorder'; exit 1; }
+geom=$(slurp -b '#00000066' -c '#ff3344' -w 3) || exit 0
+out="$outdir/niri-$(date +%Y%m%d-%H%M%S).mp4"
+wf-recorder -g "$geom" -f "$out" -r "${NIRI_RECORD_FPS:-60}" -D >/tmp/niri-record-tech.log 2>&1 & echo $! > "$pidfile"
+notify-send -a 'Screen record' 'Запись начата' "$out"

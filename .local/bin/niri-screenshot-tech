@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+geom=$(slurp -b '#00000066' -c '#ff3344' -w 3) || exit 0
+mkdir -p "${HOME}/Pictures/Screenshots"
+out="${HOME}/Pictures/Screenshots/$(date +%Y%m%d-%H%M%S).png"
+grim -g "$geom" "$out"
+notify-send -a Screenshot "Скриншот сохранён" "$out"

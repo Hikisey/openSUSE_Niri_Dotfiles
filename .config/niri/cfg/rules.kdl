@@ -1,0 +1,105 @@
+
+window-rule {
+    match app-id="steam" title="^$"
+    open-floating true
+    min-width 1
+    min-height 1
+}
+
+window-rule {
+    match app-id="steam" title=r#"^notificationtoasts_\d+_desktop$"#
+    default-floating-position x=10 y=10 relative-to="bottom-right"
+}
+
+
+window-rule {
+    match is-focused=false
+
+    opacity 0.95
+}
+
+
+window-rule {
+        geometry-corner-radius 8 // Set every window radius to 8
+        clip-to-geometry true
+    }
+
+    window-rule {
+        background-effect {
+          blur false
+          xray false
+        }
+    }
+
+    // Floating Noctalia settings window.
+    window-rule {
+        match app-id="dev.noctalia.Noctalia"
+        open-floating true
+        default-column-width { fixed 1080; }
+        default-window-height { fixed 920; }
+    }
+
+    // if you use steam you will probably like these
+    window-rule {
+        match app-id="steam"
+        exclude title=r#"^[Ss]team$"#
+        open-floating true
+    }
+
+    window-rule {
+       match app-id="steam" title=r#"^notificationtoasts_\d+_desktop$"#
+       default-floating-position x=10 y=10 relative-to="bottom-right"
+       open-focused false
+    }
+
+    layer-rule {
+        match namespace="^noctalia-wallpaper"
+        place-within-backdrop true
+    }
+
+    layer-rule {
+        match namespace="^waywallen-wallpaper"
+        place-within-backdrop true
+    }
+
+
+    layer-rule {
+        match namespace="^noctalia-(bar-[^\"]+|notification|dock|panel|attached-panel|osd)$"
+        background-effect {
+          xray false
+          // blur false
+        }
+    }
+
+    workspace "privacy"
+
+    window-rule {
+        match title="niri-cast-privacy"
+        match app-id="dev.niri.cast-privacy"
+        open-on-workspace "privacy"
+        open-focused false
+        open-floating true
+    }
+
+// DaVinci Resolve (X11 via xwayland-satellite)
+window-rule {
+    match app-id=r#"^resolve$"#
+    match title=r#"(?i)davinci resolve"#
+    open-maximized true
+}
+
+window-rule {
+    match app-id=r#"^resolve$"#
+    match title=r#"(?i)project manager"#
+    open-floating true
+}
+
+// Resolve nested in labwc for working drag-and-drop
+window-rule {
+    match app-id=r#"^labwc$"#
+    match title=r#"DaVinci Resolve \(DnD\)"#
+    open-maximized true
+}
+
+
+// Personal layout-pin / monitor / per-game rules omitted for portability.

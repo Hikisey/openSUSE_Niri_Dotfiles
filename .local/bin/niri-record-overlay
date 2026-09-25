@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+"""Recording overlay: keep ropes, morph into Terraria dirt rising upward."""
+from __future__ import annotations
+
+import math
+import signal
+import sys
+import time
+import traceback
+from dataclasses import dataclass, field
+
+import cairo
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
+
+DIM = 0.30
+MORPH_SEC = 0.85  # fast but readable
+SEG_BORDER = 10
+SEG_TETHER = 12
+CELL = 3
+LOG = "/tmp/niri-record-overlay.log"
+
+DIRT = [
+    (0.58, 0.38, 0.22),
+    (0.48, 0.30, 0.16),
+    (0.40, 0.24, 0.12),
+    (0.66, 0.45, 0.28),
+    (0.34, 0.20, 0.10),
+    (0.52, 0.34, 0.18),
+]
+PEBBLE = (0.62, 0.58, 0.52)
+GRASS = [
+    (0.25, 0.68, 0.20),
+    (0.18, 0.55, 0.14),
+    (0.32, 0.75, 0.24),
+]
+C_OUT = (0.22, 0.12, 0.05, 1.0)
+C_DARK = (0.42, 0.26, 0.12, 1.0)
+C_MID = (0.70, 0.50, 0.28, 1.0)
+C_LIT = (0.90, 0.74, 0.48, 1.0)
+
+
+def log(msg: str) -> None:
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def parse_geom(s: str):
+    pos, size = s.strip().split()
+    x, y = (int(v) for v in pos.split(","))
+    w, h = (int(v) for v in size.split("x"))
+    return x, y, w, h
+
+
+def _hash(ix: int, iy: int, salt: int = 0) -> int:
+    n = (ix * 374761393 + iy * 668265263 + salt * 982451653) & 0xFFFFFFFF
+    n = (n ^ (n >> 13)) * 1274126177 & 0xFFFFFFFF
+    return n
+
+
+@dataclass
+class Particle:
+    x: float
+    y: float
+    px: float
+    py: float
+    pinned: bool = False
+
+
+@dataclass
+class Rope:
+    pts: list = field(default_factory=list)
+    rest: float = 1.0
+    gravity: float = 40.0
+    kind: str = "border"
+
+
+def make_rope(x0, y0, x1, y1, n, gravity, slack, kind) -> Rope:
+    pts = []
+    for i in range(n):
+        t = i / (n - 1)
+        x = x0 + (x1 - x0) * t
+        y = y0 + (y1 - y0) * t
+        pts.append(Particle(x, y, x, y, pinned=(i == 0 or i == n - 1)))
+    length = math.hypot(x1 - x0, y1 - y0)
+    return Rope(pts=pts, rest=max(length / (n - 1), 1.0) * slack, gravity=gravity, kind=kind)
+
+
+def step_rope(rope: Rope, dt: float):
+    g = rope.gravity * dt * dt
+    for p in rope.pts:
+        if p.pinned:
+            continue
+        vx = (p.x - p.px) * 0.94
+        vy = (p.y - p.py) * 0.94
+        p.px, p.py = p.x, p.y
+        p.x += vx
+        p.y += vy + g
+    for _ in range(5):
+        for i in range(len(rope.pts) - 1):
+            a, b = rope.pts[i], rope.pts[i + 1]
+            dx, dy = b.x - a.x, b.y - a.y
+            dist = math.hypot(dx, dy) or 1e-4
+            diff = (dist - rope.rest) / dist
+            if a.pinned and b.pinned:
+                continue
+            if a.pinned:
+                b.x -= dx * diff
+                b.y -= dy * diff
+            elif b.pinned:
+                a.x += dx * diff
+                a.y += dy * diff
+            else:
+                ox, oy = dx * 0.5 * diff, dy * 0.5 * diff
+                a.x += ox
+                a.y += oy
+                b.x -= ox
+                b.y -= oy
+
+
+class Overlay(Gtk.Window):
+    def __init__(self, gx, gy, gw, gh):
+        super().__init__()
+        display = Gdk.Display.get_default()
+        mon = display.get_monitor_at_point(gx + gw // 2, gy + gh // 2)
+        if mon is None:
+            mon = display.get_primary_monitor()
+        geo = mon.get_geometry()
+        self.mon = mon
+        self.geo = geo
+        self.win_w = geo.width
+        self.win_h = geo.height
+        self.rx = float(gx - geo.x)
+        self.ry = float(gy - geo.y)
+        self.rw = float(gw)
+        self.rh = float(gh)
+        # global hole for rope anchors
+        self.hx, self.hy, self.hw, self.hh = gx, gy, gw, gh
+
+        self.morph = 0.0  # 0 rope → 1 dirt
+        self.t0 = time.monotonic()
+        self.frozen = False
+        self.ropes = self._build_ropes()
+
+        self.set_app_paintable(True)
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_accept_focus(False)
+        self.set_can_focus(False)
+        self.set_size_request(self.win_w, self.win_h)
+
+        visual = self.get_screen().get_rgba_visual()
+        if visual is not None:
+            self.set_visual(visual)
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "niri-record-overlay")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        GtkLayerShell.set_monitor(self, mon)
+        for e in (
+            GtkLayerShell.Edge.LEFT,
+            GtkLayerShell.Edge.TOP,
+            GtkLayerShell.Edge.RIGHT,
+            GtkLayerShell.Edge.BOTTOM,
+        ):
+            GtkLayerShell.set_anchor(self, e, True)
+            GtkLayerShell.set_margin(self, e, 0)
+
+        self.connect("draw", self.on_draw)
+        self.connect("realize", lambda *_: self.apply_clickthrough())
+        self.show_all()
+        GLib.idle_add(self.apply_clickthrough)
+        GLib.timeout_add(8, self._tick)
+        log(f"start hole={gx},{gy} {gw}x{gh} mon={geo.x},{geo.y} {geo.width}x{geo.height}")
+
+    def _build_ropes(self):
+        mx, my, mw, mh = self.geo.x, self.geo.y, self.geo.width, self.geo.height
+        x, y, w, h = self.hx, self.hy, self.hw, self.hh
+        specs = [
+            ("tether", mx, my, x, y, SEG_TETHER, 520.0, 1.06),
+            ("tether", mx + mw, my, x + w, y, SEG_TETHER, 520.0, 1.06),
+            ("tether", mx + mw, my + mh, x + w, y + h, SEG_TETHER, 520.0, 1.06),
+            ("tether", mx, my + mh, x, y + h, SEG_TETHER, 520.0, 1.06),
+            ("border", x, y, x + w, y, SEG_BORDER, 24.0, 1.0),
+            ("border", x + w, y + h, x, y + h, SEG_BORDER, 24.0, 1.0),
+            ("border", x + w, y, x + w, y + h, SEG_BORDER, 8.0, 1.0),
+            ("border", x, y + h, x, y, SEG_BORDER, 8.0, 1.0),
+        ]
+        return [make_rope(x0, y0, x1, y1, n, g, s, k) for k, x0, y0, x1, y1, n, g, s in specs]
+
+    def apply_clickthrough(self, *_):
+        try:
+            stub = cairo.Region(cairo.RectangleInt(0, 0, 1, 1))
+            self.input_shape_combine_region(stub)
+            win = self.get_window()
+            if win is not None:
+                try:
+                    win.set_pass_through(True)
+                except Exception:
+                    pass
+                win.input_shape_combine_region(stub, 0, 0)
+        except Exception:
+            log(traceback.format_exc())
+        return False
+
+    def _tick(self):
+        now = time.monotonic()
+        if not self.frozen:
+            self.morph = min(1.0, (now - self.t0) / MORPH_SEC)
+            # ease-out for nicer finish
+            m = self.morph
+            self.morph_eased = 1.0 - (1.0 - m) ** 2
+            dt = 0.008
+            if self.morph < 1.0:
+                for r in self.ropes:
+                    step_rope(r, dt)
+            else:
+                self.frozen = True
+                # kill residual swing
+                for r in self.ropes:
+                    for p in r.pts:
+                        p.px, p.py = p.x, p.y
+                log("morph done")
+            self.queue_draw()
+            return True
+        # frozen: rare redraw not needed
+        return False
+
+    def _front_y(self):
+        """Dirt rises upward: front moves from bottom → top of monitor."""
+        # Y grows downward; bottom = geo.y + height
+        bottom = self.geo.y + self.geo.height
+        top = self.geo.y
+        m = getattr(self, "morph_eased", self.morph)
+        return bottom - m * (bottom - top)
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+
+        cr.set_operator(cairo.OPERATOR_OVER)
+        cr.set_source_rgba(0, 0, 0, DIM)
+        cr.rectangle(0, 0, self.win_w, self.win_h)
+        cr.fill()
+
+        # clear capture hole
+        cr.set_operator(cairo.OPERATOR_CLEAR)
+        cr.rectangle(self.rx, self.ry, self.rw, self.rh)
+        cr.fill()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        cr.set_antialias(cairo.ANTIALIAS_NONE)
+
+        front = self._front_y()
+        for rope in self.ropes:
+            self._draw_morph_rope(cr, rope, front)
+        return False
+
+    def _samples(self, rope: Rope):
+        samples = []
+        for i in range(len(rope.pts) - 1):
+            a, b = rope.pts[i], rope.pts[i + 1]
+            seg = math.hypot(b.x - a.x, b.y - a.y)
+            steps = max(1, int(seg / 4.0))
+            for s in range(steps):
+                t = s / steps
+                samples.append((a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t))
+        samples.append((rope.pts[-1].x, rope.pts[-1].y))
+        return samples
+
+    def _draw_morph_rope(self, cr, rope: Rope, front_y: float):
+        ox, oy = self.geo.x, self.geo.y
+        samples = self._samples(rope)
+        # split into dirt vs rope runs for fewer state changes
+        for i in range(len(samples) - 1):
+            x0, y0 = samples[i]
+            x1, y1 = samples[i + 1]
+            ym = (y0 + y1) * 0.5
+            # below front (larger y) = already dirt; above = still rope
+            # soft band near front for mix
+            band = 28.0
+            if ym > front_y + band:
+                dirt_amt = 1.0
+            elif ym < front_y - band:
+                dirt_amt = 0.0
+            else:
+                dirt_amt = 0.5 + 0.5 * ((ym - (front_y - band)) / (2 * band))
+
+            if dirt_amt >= 0.55:
+                self._splat_dirt(cr, x0 - ox, y0 - oy, x1 - ox, y1 - oy)
+            else:
+                self._splat_rope(cr, x0 - ox, y0 - oy, x1 - ox, y1 - oy, rope.kind)
+
+            # transition sparkle: grass sprouting at the rising front
+            if 0.35 < dirt_amt < 0.75 and (_hash(int(x0), int(y0), 9) & 7) == 0:
+                g = GRASS[_hash(int(x0), int(y0), 3) % len(GRASS)]
+                cr.set_source_rgba(g[0], g[1], g[2], 1.0)
+                px = round(((x0 + x1) * 0.5 - ox) / CELL) * CELL
+                py = round(((y0 + y1) * 0.5 - oy) / CELL) * CELL
+                cr.rectangle(px, py - CELL, CELL, CELL)
+                cr.fill()
+
+        # end knots / dirt clumps
+        for p in (rope.pts[0], rope.pts[-1]):
+            if p.y >= front_y - 10:
+                self._dirt_knot(cr, p.x - ox, p.y - oy)
+            else:
+                self._rope_knot(cr, p.x - ox, p.y - oy)
+
+    def _splat_rope(self, cr, x0, y0, x1, y1, kind):
+        thick = 7 if kind == "border" else 6
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_width(thick + 2 * CELL)
+        cr.set_source_rgba(*C_OUT)
+        cr.move_to(x0, y0)
+        cr.line_to(x1, y1)
+        cr.stroke()
+        cr.set_line_width(thick)
+        cr.set_source_rgba(*C_DARK)
+        cr.move_to(x0, y0)
+        cr.line_to(x1, y1)
+        cr.stroke()
+        cr.set_line_width(thick - 2)
+        cr.set_source_rgba(*C_MID)
+        cr.move_to(x0, y0)
+        cr.line_to(x1, y1)
+        cr.stroke()
+        # braid tick
+        mx, my = (x0 + x1) * 0.5, (y0 + y1) * 0.5
+        cr.set_source_rgba(*C_LIT)
+        cr.rectangle(round(mx / CELL) * CELL, round(my / CELL) * CELL, CELL, CELL)
+        cr.fill()
+
+    def _splat_dirt(self, cr, x0, y0, x1, y1):
+        mx, my = (x0 + x1) * 0.5, (y0 + y1) * 0.5
+        ix, iy = int(mx // CELL), int(my // CELL)
+        h = _hash(ix, iy, 1)
+        # chunky blob along segment
+        for ox, oy in ((0, 0), (-CELL, 0), (CELL, 0), (0, -CELL), (0, CELL), (-CELL, CELL), (CELL, -CELL)):
+            hh = _hash(ix + ox, iy + oy, 2)
+            if (hh & 5) == 0 and (ox or oy):
+                continue
+            if (hh & 47) == 0:
+                col = PEBBLE
+            else:
+                base = DIRT[hh % len(DIRT)]
+                shade = 0.88 + 0.2 * ((hh & 255) / 255.0)
+                col = (min(1.0, base[0] * shade), min(1.0, base[1] * shade), min(1.0, base[2] * shade))
+            cr.set_source_rgba(col[0], col[1], col[2], 1.0)
+            cr.rectangle(round((mx + ox) / CELL) * CELL, round((my + oy) / CELL) * CELL, CELL, CELL)
+            cr.fill()
+        # occasional grass on top-ish dirt near hole top edge
+        if my < self.ry + 8 and (h & 3) != 0:
+            g = GRASS[h % len(GRASS)]
+            cr.set_source_rgba(g[0], g[1], g[2], 1.0)
+            cr.rectangle(round(mx / CELL) * CELL, round(my / CELL) * CELL - CELL, CELL, CELL)
+            cr.fill()
+
+    def _rope_knot(self, cr, kx, ky):
+        for dx, dy, col in ((0, 0, C_OUT), (-CELL, 0, C_DARK), (CELL, 0, C_MID), (0, -CELL, C_DARK), (0, CELL, C_LIT)):
+            cr.set_source_rgba(*col)
+            cr.rectangle(round((kx + dx) / CELL) * CELL, round((ky + dy) / CELL) * CELL, CELL, CELL)
+            cr.fill()
+
+    def _dirt_knot(self, cr, kx, ky):
+        for dx, dy in ((0, 0), (-CELL, 0), (CELL, 0), (0, -CELL), (0, CELL)):
+            base = DIRT[_hash(int(kx + dx), int(ky + dy), 4) % len(DIRT)]
+            cr.set_source_rgba(base[0], base[1], base[2], 1.0)
+            cr.rectangle(round((kx + dx) / CELL) * CELL, round((ky + dy) / CELL) * CELL, CELL, CELL)
+            cr.fill()
+
+
+def main() -> int:
+    open(LOG, "w", encoding="utf-8").write("boot\n")
+    if len(sys.argv) != 2:
+        log("usage: niri-record-overlay 'x,y WxH'")
+        return 2
+    try:
+        x, y, w, h = parse_geom(sys.argv[1])
+        signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+        signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+        Overlay(x, y, w, h)
+        Gtk.main()
+        return 0
+    except Exception:
+        log(traceback.format_exc())
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

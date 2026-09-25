@@ -1,0 +1,28 @@
+[shell]
+settings_show_advanced = true
+time_format = "{:%I:%M %p}"
+polkit_agent = true
+
+[theme.templates]
+enable_community_templates = true
+community_ids = ["telegram"]
+
+[notification]
+enable_daemon = true
+monitors = []  # set your outputs locally
+layer = "overlay"
+
+
+[osd]
+monitors = []  # set your outputs locally
+[bar.default.monitor.hdmi]
+match = ""  # set your output name locally
+enabled = false
+
+[shell.screenshot]
+freeze_screen = true
+annotate = true
+save_to_file = true
+copy_to_clipboard = true
+directory = "~/Pictures/Screenshots"
+confirm_region = false

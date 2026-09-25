@@ -1,0 +1,30 @@
+// ────────────── Input Configuration ──────────────
+// https://github.com/YaLTeR/niri/wiki/Configuration:-Input
+
+input {
+    keyboard {
+        xkb {
+            //If you want to overwrite your keyboard layout,
+            // uncomment the line below and change the layout accordingly.
+           layout "us,ru" // Use the American keyboard layout
+	   options "grp:caps_toggle"
+      }
+        repeat-delay 250
+        repeat-rate 45
+        numlock
+    }
+
+    touchpad {
+        tap // Enable tap-to-click
+        natural-scroll // Enable natural (macOS-style) scrolling
+    }
+
+    mouse {
+        // скорость мыши: -1.0 медленнее, 0.0 норма, 1.0 быстрее
+        accel-speed -0.5
+        accel-profile "flat"
+    }
+
+    focus-follows-mouse // Automatically focus windows under the mouse pointer
+    workspace-auto-back-and-forth // Enable workspace back & forth switching
+}

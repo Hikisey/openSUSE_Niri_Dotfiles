@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/niri-record-region-simple.pid"
+OVERLAY_PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/niri-record-overlay-simple.pid"
+OUTFILE_META="${XDG_RUNTIME_DIR:-/tmp}/niri-record-region-simple.out"
+OUTDIR="${HOME}/Videos"
+OVERLAY_BIN="${HOME}/.local/bin/niri-record-overlay-simple"
+SELECTOR="${HOME}/.local/bin/niri-screenshot-region-simple"
+FPS="${NIRI_RECORD_FPS:-60}"
+mkdir -p "$OUTDIR"
+
+notify() {
+  notify-send -a "Screen record" "$@" || true
+}
+
+stop_overlay() {
+  if [[ -f "$OVERLAY_PIDFILE" ]]; then
+    opid=$(<"$OVERLAY_PIDFILE")
+    kill "$opid" 2>/dev/null || true
+    rm -f "$OVERLAY_PIDFILE"
+  fi
+  pkill -f 'python3 .*/niri-record-overlay-simple' 2>/dev/null || true
+  pkill -f '/niri-record-overlay-simple ' 2>/dev/null || true
+}
+
+if [[ -f "$PIDFILE" ]]; then
+  pid=$(<"$PIDFILE")
+  outfile=""
+  [[ -f "$OUTFILE_META" ]] && outfile=$(<"$OUTFILE_META")
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" 2>/dev/null || true
+    for _ in $(seq 1 100); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    stop_overlay
+    if [[ -n "$outfile" && -f "$outfile" ]]; then
+      notify "Сохранено (${FPS} fps · HEVC NVENC)" "$outfile"
+    else
+      notify "Запись остановлена" "смотри /tmp/niri-record-region-simple.log"
+    fi
+    exit 0
+  fi
+  rm -f "$PIDFILE"
+  stop_overlay
+fi
+
+command -v wf-recorder >/dev/null 2>&1 || {
+  notify "Нет wf-recorder" "sudo pacman -S wf-recorder"
+  exit 1
+}
+
+geom=$("$SELECTOR" --geometry) || exit 0
+[[ -n "$geom" ]] || exit 0
+
+stamp=$(date +%Y%m%d-%H%M%S)
+outfile="${OUTDIR}/niri-${stamp}.mp4"
+printf '%s\n' "$outfile" >"$OUTFILE_META"
+
+stop_overlay
+if [[ -x "$OVERLAY_BIN" ]]; then
+  "$OVERLAY_BIN" "$geom" >/tmp/niri-record-overlay-simple.spawn.log 2>&1 &
+  echo $! >"$OVERLAY_PIDFILE"
+  disown || true
+  sleep 0.05
+fi
+
+wf-recorder -g "$geom" -f "$outfile" -r "$FPS" -D \
+  -c hevc_nvenc -p cq=26 -p preset=p4 -p tune=ll -b 0 \
+  >/tmp/niri-record-region-simple.log 2>&1 &
+echo $! >"$PIDFILE"
+disown || true
+
+notify "Запись ${FPS} fps · HEVC NVENC" "Meta+Shift+R — стоп · ${outfile##*/}"

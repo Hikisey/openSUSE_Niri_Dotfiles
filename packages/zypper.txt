@@ -1,0 +1,14 @@
+# Suggested packages for openSUSE Tumbleweed + Niri
+# sudo zypper in $(grep -v '^#' packages/zypper.txt | tr '
+' ' ')
+
+niri
+kitty
+grim
+slurp
+wf-recorder
+tesseract
+tesseract-ocr
+wl-clipboard
+xdg-desktop-portal-gnome
+xdg-desktop-portal-gtk

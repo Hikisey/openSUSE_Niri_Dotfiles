@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+export TESSDATA_PREFIX="${HOME}/.local/share/tessdata"
+geom=$(slurp) || exit 0
+tmp=$(mktemp --suffix=.png)
+trap 'rm -f "$tmp"' EXIT
+grim -g "$geom" "$tmp"
+text=$(tesseract "$tmp" stdout -l rus+eng --psm 6 2>/dev/null | sed -e 's/[[:space:]]*$//' -e '/^$/d')
+if [ -z "$text" ]; then
+  notify-send -a OCR "OCR" "Текст не найден"
+  exit 0
+fi
+printf '%s' "$text" | wl-copy
+notify-send -a OCR "OCR → буфер" "$(printf '%s' "$text" | head -c 280)"

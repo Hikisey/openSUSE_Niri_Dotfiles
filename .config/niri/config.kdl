@@ -1,0 +1,15 @@
+include "./cfg/animation.kdl"
+include "./cfg/autostart.kdl"
+include "./cfg/keybinds.kdl"
+include "./cfg/input.kdl"
+include "./cfg/layout.kdl"
+include "./cfg/rules.kdl"
+include "./cfg/privacy-block.kdl"
+include "./cfg/misc.kdl"
+
+include "noctalia.kdl"
+
+include "./cfg/game-mode.kdl"
+
+// Monitor output blocks omitted for portability.
+// Copy cfg/outputs.kdl.example -> outputs.kdl, edit, then include it here.

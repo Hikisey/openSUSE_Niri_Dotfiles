@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Toggle niri block-out for sensitive apps in screencasts. Local screens stay live."""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+RULES = Path.home() / ".config/niri/cfg/privacy-block.kdl"
+APPS = (
+    ("Telegram", r"^org\.telegram\.desktop$"),
+    ("Bitwarden", r"^Bitwarden$"),
+    ("Helium", r"^helium$"),
+    ("Discord", r"^discord$"),
+)
+
+
+def notify(title: str, body: str, ok: bool = True) -> None:
+    subprocess.call(
+        [
+            "notify-send",
+            "-a",
+            "niri",
+            "-u",
+            "normal" if ok else "critical",
+            "-t",
+            "2500",
+            title,
+            body,
+        ]
+    )
+
+
+def is_on() -> bool:
+    if not RULES.exists():
+        return False
+    return "block-out-from" in RULES.read_text()
+
+
+def write_off() -> None:
+    RULES.parent.mkdir(parents=True, exist_ok=True)
+    RULES.write_text("// privacy block-out off (Mod+Shift+X)\n")
+
+
+def write_on() -> None:
+    lines = [
+        "// privacy block-out on (Mod+Shift+X)",
+        "window-rule {",
+    ]
+    for _name, regex in APPS:
+        lines.append('    match app-id=r#"' + regex + '"#')
+    lines.append('    block-out-from "screencast"')
+    lines.append("}")
+    lines.append("")
+    RULES.parent.mkdir(parents=True, exist_ok=True)
+    RULES.write_text("\n".join(lines))
+
+
+def reload() -> None:
+    subprocess.check_call(["niri", "msg", "action", "load-config-file"])
+
+
+def main() -> None:
+    names = ", ".join(name for name, _ in APPS)
+    try:
+        if is_on():
+            write_off()
+            reload()
+            notify("Privacy OFF", "Telegram, Bitwarden, Helium, Discord снова в стриме")
+        else:
+            write_on()
+            reload()
+            notify("Privacy ON", "В стриме чёрные: " + names)
+    except Exception as e:
+        notify("Privacy FAIL", str(e), ok=False)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

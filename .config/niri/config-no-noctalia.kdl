@@ -1,0 +1,12 @@
+include "./cfg/animation.kdl"
+include "./cfg/autostart-no-noctalia.kdl"
+include "./cfg/keybinds-no-noctalia.kdl"
+include "./cfg/input.kdl"
+include "./cfg/layout.kdl"
+include "./cfg/rules.kdl"
+include "./cfg/privacy-block.kdl"
+include "./cfg/misc.kdl"
+
+include "./cfg/game-mode.kdl"
+
+// Monitor outputs omitted on purpose. See cfg/outputs.kdl.example.

@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Recording overlay: red rounded rect outline + ~30% dim outside, click-through."""
+from __future__ import annotations
+
+import math
+import signal
+import sys
+import traceback
+
+import cairo
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import GLib, Gtk, GtkLayerShell, Gdk  # noqa: E402
+
+DIM = 0.30
+BORDER = 3.0
+RADIUS = 10.0
+BORDER_COLOR = (0.95, 0.15, 0.15, 1.0)
+LOG = "/tmp/niri-record-overlay-simple.log"
+
+
+def log(msg: str) -> None:
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def parse_geom(s: str):
+    pos, size = s.strip().split()
+    x, y = (int(v) for v in pos.split(","))
+    w, h = (int(v) for v in size.split("x"))
+    return x, y, w, h
+
+
+def rounded_rect(cr, x, y, w, h, r):
+    r = min(r, w / 2, h / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+class Overlay(Gtk.Window):
+    def __init__(self, gx, gy, gw, gh):
+        super().__init__()
+        display = Gdk.Display.get_default()
+        mon = display.get_monitor_at_point(gx + gw // 2, gy + gh // 2)
+        if mon is None:
+            mon = display.get_primary_monitor()
+        geo = mon.get_geometry()
+        self.geo = geo
+        self.win_w = geo.width
+        self.win_h = geo.height
+        self.rx = float(gx - geo.x)
+        self.ry = float(gy - geo.y)
+        self.rw = float(gw)
+        self.rh = float(gh)
+
+        self.set_app_paintable(True)
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_accept_focus(False)
+        self.set_can_focus(False)
+        self.set_size_request(self.win_w, self.win_h)
+
+        visual = self.get_screen().get_rgba_visual()
+        if visual is not None:
+            self.set_visual(visual)
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "niri-record-overlay-simple")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        GtkLayerShell.set_monitor(self, mon)
+        for e in (
+            GtkLayerShell.Edge.LEFT,
+            GtkLayerShell.Edge.TOP,
+            GtkLayerShell.Edge.RIGHT,
+            GtkLayerShell.Edge.BOTTOM,
+        ):
+            GtkLayerShell.set_anchor(self, e, True)
+            GtkLayerShell.set_margin(self, e, 0)
+
+        self.connect("draw", self.on_draw)
+        self.connect("realize", lambda *_: self.apply_clickthrough())
+        self.show_all()
+        GLib.idle_add(self.apply_clickthrough)
+        log(f"start hole={gx},{gy} {gw}x{gh} mon={geo.x},{geo.y} {geo.width}x{geo.height}")
+
+    def apply_clickthrough(self, *_):
+        try:
+            stub = cairo.Region(cairo.RectangleInt(0, 0, 1, 1))
+            self.input_shape_combine_region(stub)
+            win = self.get_window()
+            if win is not None:
+                try:
+                    win.set_pass_through(True)
+                except Exception:
+                    pass
+                win.input_shape_combine_region(stub, 0, 0)
+        except Exception:
+            log(traceback.format_exc())
+        return False
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+
+        cr.set_operator(cairo.OPERATOR_OVER)
+        cr.set_source_rgba(0, 0, 0, DIM)
+        cr.rectangle(0, 0, self.win_w, self.win_h)
+        cr.fill()
+
+        cr.set_operator(cairo.OPERATOR_CLEAR)
+        rounded_rect(cr, self.rx, self.ry, self.rw, self.rh, RADIUS)
+        cr.fill()
+        cr.set_operator(cairo.OPERATOR_OVER)
+
+        cr.set_line_width(BORDER)
+        cr.set_source_rgba(*BORDER_COLOR)
+        inset = BORDER / 2
+        rounded_rect(
+            cr,
+            self.rx + inset,
+            self.ry + inset,
+            max(self.rw - BORDER, 0),
+            max(self.rh - BORDER, 0),
+            max(RADIUS - inset, 0),
+        )
+        cr.stroke()
+        return False
+
+
+def main() -> int:
+    open(LOG, "w", encoding="utf-8").write("boot\n")
+    if len(sys.argv) != 2:
+        log("usage: niri-record-overlay-simple 'x,y WxH'")
+        return 2
+    try:
+        x, y, w, h = parse_geom(sys.argv[1])
+        signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+        signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+        Overlay(x, y, w, h)
+        Gtk.main()
+        return 0
+    except Exception:
+        log(traceback.format_exc())
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

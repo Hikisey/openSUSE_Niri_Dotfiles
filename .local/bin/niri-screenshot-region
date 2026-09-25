@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# 1) freeze + select region  2) annotate editor (arrows/blur) if enabled in settings
+exec noctalia msg screenshot-region

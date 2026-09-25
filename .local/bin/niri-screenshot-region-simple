@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""Region screenshot: dim outside, red rectangle border only (no ropes)."""
+from __future__ import annotations
+
+import math
+import os
+import signal
+import subprocess
+import sys
+import time
+
+import cairo
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
+
+OUTDIR = os.path.expanduser("~/Pictures/Screenshots")
+DIM = 0.35
+BORDER = 2.5
+BORDER_COLOR = (0.95, 0.15, 0.15, 1.0)
+MIN_SIZE = 4
+GEOMETRY_ONLY = "--geometry" in sys.argv
+
+
+class ScreenOverlay(Gtk.Window):
+    def __init__(self, app: "ScreenshotApp", monitor: Gdk.Monitor, geo):
+        super().__init__()
+        self.app = app
+        self.monitor = monitor
+        self.geo = geo
+        self.win_w = geo.width
+        self.win_h = geo.height
+
+        self.set_app_paintable(True)
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_size_request(self.win_w, self.win_h)
+
+        visual = self.get_screen().get_rgba_visual()
+        if visual is not None:
+            self.set_visual(visual)
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "niri-screenshot-simple")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        GtkLayerShell.set_monitor(self, monitor)
+        for edge in (
+            GtkLayerShell.Edge.LEFT,
+            GtkLayerShell.Edge.TOP,
+            GtkLayerShell.Edge.RIGHT,
+            GtkLayerShell.Edge.BOTTOM,
+        ):
+            GtkLayerShell.set_anchor(self, edge, True)
+            GtkLayerShell.set_margin(self, edge, 0)
+
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.KEY_PRESS_MASK
+        )
+        self.connect("draw", self.on_draw)
+        self.connect("button-press-event", self.on_press)
+        self.connect("button-release-event", self.on_release)
+        self.connect("motion-notify-event", self.on_motion)
+        self.connect("key-press-event", self.on_key)
+        self.set_can_focus(True)
+        self.show_all()
+        self.grab_focus()
+
+    def to_global(self, lx: float, ly: float):
+        return self.geo.x + lx, self.geo.y + ly
+
+    def on_press(self, _w, event):
+        if event.button != 1:
+            return False
+        gx, gy = self.to_global(event.x, event.y)
+        self.app.begin_drag(gx, gy)
+        return True
+
+    def on_motion(self, _w, event):
+        if not self.app.dragging:
+            return False
+        gx, gy = self.to_global(event.x, event.y)
+        self.app.update_drag(gx, gy)
+        return True
+
+    def on_release(self, _w, event):
+        if event.button != 1:
+            return False
+        gx, gy = self.to_global(event.x, event.y)
+        self.app.end_drag(gx, gy)
+        return True
+
+    def on_key(self, _w, event):
+        key = Gdk.keyval_name(event.keyval)
+        if key in ("Escape", "Esc"):
+            self.app.cancel()
+            return True
+        return False
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+
+        cr.set_operator(cairo.OPERATOR_OVER)
+        cr.set_source_rgba(0, 0, 0, DIM)
+        cr.rectangle(0, 0, self.win_w, self.win_h)
+        cr.fill()
+
+        sel = self.app.selection_global()
+        if sel is not None:
+            x, y, w, h = sel
+            lx, ly = x - self.geo.x, y - self.geo.y
+            cr.set_operator(cairo.OPERATOR_CLEAR)
+            cr.rectangle(lx, ly, w, h)
+            cr.fill()
+            cr.set_operator(cairo.OPERATOR_OVER)
+
+            cr.set_line_width(BORDER)
+            cr.set_source_rgba(*BORDER_COLOR)
+            cr.rectangle(lx + BORDER / 2, ly + BORDER / 2, max(w - BORDER, 0), max(h - BORDER, 0))
+            cr.stroke()
+
+        return False
+
+
+class ScreenshotApp:
+    def __init__(self):
+        self.dragging = False
+        self.x0 = self.y0 = 0.0
+        self.x1 = self.y1 = 0.0
+        self.windows: list[ScreenOverlay] = []
+        self._done = False
+        self._cancelled = False
+
+        display = Gdk.Display.get_default()
+        n = display.get_n_monitors()
+        for i in range(n):
+            mon = display.get_monitor(i)
+            geo = mon.get_geometry()
+            self.windows.append(ScreenOverlay(self, mon, geo))
+        if self.windows:
+            GtkLayerShell.set_keyboard_mode(
+                self.windows[0], GtkLayerShell.KeyboardMode.EXCLUSIVE
+            )
+            self.windows[0].grab_focus()
+
+    def selection_global(self):
+        if not self.dragging and abs(self.x1 - self.x0) < 1 and abs(self.y1 - self.y0) < 1:
+            if self.x0 == 0 and self.x1 == 0 and self.y0 == 0 and self.y1 == 0:
+                return None
+        x = min(self.x0, self.x1)
+        y = min(self.y0, self.y1)
+        w = abs(self.x1 - self.x0)
+        h = abs(self.y1 - self.y0)
+        if w < 1 or h < 1:
+            return None
+        return int(x), int(y), int(w), int(h)
+
+    def begin_drag(self, gx, gy):
+        self.dragging = True
+        self.x0 = self.x1 = gx
+        self.y0 = self.y1 = gy
+        self.redraw()
+
+    def update_drag(self, gx, gy):
+        self.x1, self.y1 = gx, gy
+        self.redraw()
+
+    def end_drag(self, gx, gy):
+        self.x1, self.y1 = gx, gy
+        self.dragging = False
+        sel = self.selection_global()
+        if sel is None or sel[2] < MIN_SIZE or sel[3] < MIN_SIZE:
+            self.cancel()
+            return
+        for w in self.windows:
+            w.hide()
+        if GEOMETRY_ONLY:
+            x, y, w, h = sel
+            print(f"{x},{y} {w}x{h}", flush=True)
+            self._done = True
+            Gtk.main_quit()
+            return
+        GLib.timeout_add(60, lambda: self._capture(sel) or False)
+
+    def _capture(self, sel):
+        if self._done:
+            return False
+        self._done = True
+        x, y, w, h = sel
+        os.makedirs(OUTDIR, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H-%M-%S")
+        path = os.path.join(OUTDIR, f"Screenshot from {stamp}.png")
+        geom = f"{x},{y} {w}x{h}"
+        try:
+            subprocess.run(["grim", "-g", geom, path], check=True)
+            with open(path, "rb") as f:
+                subprocess.run(
+                    ["wl-copy", "--type", "image/png"],
+                    input=f.read(),
+                    check=False,
+                )
+            subprocess.run(
+                ["notify-send", "-a", "Screenshot", "Скриншот сохранён", path],
+                check=False,
+            )
+        except Exception as e:
+            subprocess.run(
+                ["notify-send", "-a", "Screenshot", "Ошибка скриншота", str(e)],
+                check=False,
+            )
+        Gtk.main_quit()
+        return False
+
+    def cancel(self):
+        if self._done:
+            return
+        self._done = True
+        self._cancelled = True
+        Gtk.main_quit()
+
+    def redraw(self):
+        for w in self.windows:
+            w.queue_draw()
+
+
+def main() -> int:
+    if not GEOMETRY_ONLY:
+        os.makedirs(OUTDIR, exist_ok=True)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    app = ScreenshotApp()
+    Gtk.main()
+    if GEOMETRY_ONLY and getattr(app, "_cancelled", False):
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

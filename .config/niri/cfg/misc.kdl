@@ -1,0 +1,50 @@
+prefer-no-csd
+    screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+
+    // Cursor theme/size not shipped — configure on your machine.
+
+    environment {
+        PATH "@HOME@/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/var/lib/flatpak/exports/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
+        ELECTRON_OZONE_PLATFORM_HINT "auto"
+        QT_QPA_PLATFORM "wayland"
+        QT_QPA_PLATFORMTHEME "gtk3"
+        QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
+        XDG_CURRENT_DESKTOP "niri"
+        XDG_SESSION_TYPE "wayland"
+        GDK_BACKEND "wayland"
+        GSK_RENDERER "ngl"
+    }
+
+    blur {
+        passes 2
+        offset 3.0
+        noise 0.03
+        saturation 1.0
+    }
+
+    debug {
+        // Allows notification actions and window activation from Noctalia.
+        honor-xdg-activation-with-invalid-serial
+        // NVIDIA: software cursor (no HW plane flicker)
+        // disable-cursor-plane  // optional NVIDIA
+        // NVIDIA dual-monitor / high-Hz: fixes laggy stuttering cursor
+        // emulate-zero-presentation-time  // optional NVIDIA
+        // Extra NVIDIA frame timing stability
+        // wait-for-frame-completion-before-queueing  // optional NVIDIA
+    }
+
+    hotkey-overlay {
+       skip-at-startup
+    }
+
+// Optional patched xwayland-satellite — enable locally if you need it.
+// xwayland-satellite {
+//     path "@HOME@/.local/bin/xwayland-satellite"
+// }
+
+// Disable top-left hot corner (Overview)
+gestures {
+    hot-corners {
+        off
+    }
+}
