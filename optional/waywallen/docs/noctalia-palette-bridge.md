@@ -141,3 +141,21 @@ waywallen-noctalia-palette --force
 - `matugen` is **not** required; Noctalia’s built-in `theme` engine is used.
 - Do not enable Noctalia `[wallpaper] enabled = true` (Waywallen draws).
 
+## Fix: purple desync (2026-09-26)
+
+Root cause: on boot the bridge could encode a **transient** Day/Night
+(`1373816444`) purple `preview.jpg` into `waywallen-main.jpg`, then fail while
+Noctalia IPC was still down. Later runs resolved Blue Sky (`2944773634`) whose
+**source** hash matched state, so the "unchanged" short-circuit never repaired
+the purple cache. UI accents stayed purple (`#9a8ac2`) despite Blue Sky's blue
+`preview.gif`.
+
+Changes:
+- Default `wallpaper_scheme` / `NOCTALIA_WALLPAPER_SCHEME` → **`m3-content`**
+- State now stores `sha256:<src> cache:<jpg> scheme:<name>`; mismatch forces re-apply
+- Wait for Noctalia IPC before apply (boot race)
+- Wallhaven enrichment for Blue Sky is **opt-in** (`WAYWALLEN_PALETTE_ENRICH_ENABLE=1`)
+- Noctalia wallpaper **drawing stays off** (`[wallpaper] enabled = false`)
+
+No plugin required — v5+ native `source = "wallpaper"` is enough; this bridge
+only feeds Waywallen's current preview path into Noctalia.

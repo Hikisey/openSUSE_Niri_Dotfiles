@@ -12,7 +12,7 @@ for arg in "$@"; do
     -h|--help)
       printf '%s\n' "Usage: waywallen-gtk-qt-palette [--force] [image.jpg]"
       printf '%s\n' "  Default image: \$XDG_CACHE_HOME/noctalia/waywallen-main.jpg"
-      printf '%s\n' "  Scheme: NOCTALIA_WALLPAPER_SCHEME (default soft)"
+      printf '%s\n' "  Scheme: NOCTALIA_WALLPAPER_SCHEME (default m3-content)"
       printf '%s\n' "  Disable: touch ~/.config/waywallen/disable-gtk-qt-palette"
       exit 0
       ;;
@@ -34,7 +34,7 @@ LOG="$STATE_DIR/waywallen-gtk-qt-palette.log"
 MARKER="$STATE_DIR/waywallen-gtk-qt-palette.ok"
 HASH_FILE="$STATE_DIR/waywallen-gtk-qt-palette.hash"
 TMPL_CFG="${WAYWALLEN_GTK_QT_TMPL:-$HOME/.config/waywallen/gtk-qt-palette-templates.toml}"
-SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-soft}"
+SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-m3-content}"
 BACKUP_ROOT="${WAYWALLEN_GTK_QT_BACKUP_ROOT:-$HOME/.local/backups}"
 DISABLE_FLAG="${XDG_CONFIG_HOME:-$HOME/.config}/waywallen/disable-gtk-qt-palette"
 LIB="${WAYWALLEN_GTK_QT_LIB:-$HOME/.local/lib/waywallen-gtk-qt-palette-lib.py}"

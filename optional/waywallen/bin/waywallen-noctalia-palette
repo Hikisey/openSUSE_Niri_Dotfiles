@@ -24,7 +24,7 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
 LOG="$STATE_DIR/waywallen-noctalia-palette.log"
 STATE_FILE="$STATE_DIR/waywallen-noctalia-palette.state"
 THEME_MARKER="$STATE_DIR/waywallen-noctalia-palette.theme-ok"
-WALLPAPER_SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-soft}"
+WALLPAPER_SCHEME="${NOCTALIA_WALLPAPER_SCHEME:-m3-content}"
 
 mkdir -p "$CACHE_DIR" "$STATE_DIR"
 
@@ -41,6 +41,25 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
 need_cmd sqlite3
 need_cmd noctalia
+
+# Noctalia IPC must be up before wallpaper-set / color-scheme-set.
+# Otherwise a boot race can encode a transient preview, die mid-apply, and
+# leave cache desynced while state still matches an older wallpaper hash.
+wait_noctalia() {
+  local i
+  for i in $(seq 1 40); do
+    if noctalia msg color-scheme-get >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+if ! wait_noctalia; then
+  die "noctalia is not running (IPC timeout)"
+fi
+
 
 [[ -f "$WW_CONFIG" ]] || die "Waywallen config not found: $WW_CONFIG"
 [[ -f "$WW_DB" ]] || die "Waywallen DB not found: $WW_DB"
@@ -352,39 +371,66 @@ if command -v sha256sum >/dev/null 2>&1; then
 elif command -v sha256 >/dev/null 2>&1; then
   SRC_HASH="$(sha256 -q "$SRC" 2>/dev/null || true)"
 fi
-STATE_PAYLOAD="$STATE_KEY"
-[[ -n "$SRC_HASH" ]] && STATE_PAYLOAD="$STATE_KEY sha256:$SRC_HASH"
-
-# Short-circuit if key+hash unchanged and cache present.
-if [[ "$FORCE" -eq 0 && -n "${STATE_PREV:-}" && "$cache_ok" -eq 1 ]]; then
-  prev_hash=""
-  if [[ "$STATE_PREV" == *" sha256:"* ]]; then
-    prev_hash="${STATE_PREV##*sha256:}"
+CACHE_HASH=""
+if [[ "$cache_ok" -eq 1 ]]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    CACHE_HASH="$(sha256sum "$CACHE_JPG" | awk '{print $1}')"
+  elif command -v sha256 >/dev/null 2>&1; then
+    CACHE_HASH="$(sha256 -q "$CACHE_JPG" 2>/dev/null || true)"
   fi
+fi
+
+STATE_PAYLOAD="$STATE_KEY"
+[[ -n "$SRC_HASH" ]] && STATE_PAYLOAD="$STATE_PAYLOAD sha256:$SRC_HASH"
+[[ -n "$CACHE_HASH" ]] && STATE_PAYLOAD="$STATE_PAYLOAD cache:$CACHE_HASH"
+STATE_PAYLOAD="$STATE_PAYLOAD scheme:$WALLPAPER_SCHEME"
+
+# Short-circuit only when source + cache + scheme all match (prevents boot-race desync).
+if [[ "$FORCE" -eq 0 && -n "${STATE_PREV:-}" && "$cache_ok" -eq 1 ]]; then
+  prev_src=""
+  prev_cache=""
+  prev_scheme=""
+  for tok in $STATE_PREV; do
+    case "$tok" in
+      sha256:*) prev_src="${tok#sha256:}" ;;
+      cache:*) prev_cache="${tok#cache:}" ;;
+      scheme:*) prev_scheme="${tok#scheme:}" ;;
+    esac
+  done
+  # Legacy: "sha256:X" may be followed by nothing; strip accidental "cache:..." if glued
+  prev_src="${prev_src%% *}"
   hash_ok=0
-  if [[ -n "$SRC_HASH" && -n "$prev_hash" ]]; then
-    [[ "$prev_hash" == "$SRC_HASH" ]] && hash_ok=1
-  elif [[ -z "$prev_hash" ]]; then
-    # Legacy state without hash: treat as match; upgrade fingerprint without re-encode
+  cache_match=0
+  scheme_match=0
+  if [[ -n "$SRC_HASH" && -n "$prev_src" && "$prev_src" == "$SRC_HASH" ]]; then
+    hash_ok=1
+  elif [[ -z "$prev_src" ]]; then
     hash_ok=1
   fi
-  if [[ "$hash_ok" -eq 1 ]]; then
-    if [[ -n "$SRC_HASH" && "$STATE_PREV" != *"sha256:"* ]]; then
-      printf '%s\n' "$STATE_PAYLOAD" >"$STATE_FILE"
-      log "upgraded state fingerprint $STATE_PAYLOAD (cache kept)"
-    fi
-    if [[ ! -f "$THEME_MARKER" ]]; then
+  if [[ -n "$CACHE_HASH" && -n "$prev_cache" && "$prev_cache" == "$CACHE_HASH" ]]; then
+    cache_match=1
+  elif [[ -z "$prev_cache" ]]; then
+    # Legacy state without cache fingerprint: force re-encode once to heal desync
+    cache_match=0
+  fi
+  if [[ -n "$prev_scheme" && "$prev_scheme" == "$WALLPAPER_SCHEME" ]]; then
+    scheme_match=1
+  elif [[ -z "$prev_scheme" ]]; then
+    scheme_match=0
+  fi
+  if [[ "$hash_ok" -eq 1 && "$cache_match" -eq 1 && "$scheme_match" -eq 1 ]]; then
+    cur_scheme="$(noctalia msg color-scheme-get 2>/dev/null || true)"
+    if [[ "$cur_scheme" != "wallpaper $WALLPAPER_SCHEME" ]]; then
       noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null 2>&1 || true
       touch "$THEME_MARKER"
     fi
-    # Still push GTK/Qt when never applied (sibling is idempotent via its own hash marker).
     if command -v waywallen-gtk-qt-palette >/dev/null 2>&1; then
       waywallen-gtk-qt-palette "$CACHE_JPG" >>"$LOG" 2>&1 || log "WARN: waywallen-gtk-qt-palette (unchanged path) failed"
     fi
     log "unchanged $STATE_PAYLOAD item_id=$ITEM_ID source=$SOURCE src=$SRC — exit 0"
     exit 0
   fi
-  log "content hash changed for $STATE_KEY — re-apply"
+  log "re-apply (src_ok=$hash_ok cache_ok=$cache_match scheme_ok=$scheme_match) for $STATE_KEY"
 fi
 
 ext_lower="${SRC##*.}"
@@ -465,10 +511,11 @@ case "$ext_lower" in
 esac
 
 # Optional enrichment for known Blue Sky / gif-only case after upscale.
-# Prefer upscaled gif first; blend wallhaven only if it exists and this is the known id.
-# Does NOT change wallpaper id / Waywallen selection.
+# Disabled by default: Blue Sky preview.gif already yields faithful sky-blue seeds;
+# a boot-race once left a purple Day/Night cache that enrichment could not heal.
+# Opt in: WAYWALLEN_PALETTE_ENRICH_ENABLE=1
 read -r out_w out_h <<<"$(_img_wh "$TMP")"
-if [[ "$EXTERNAL_ID" == "$BLUE_SKY_ID" && "$ext_lower" == "gif" && -f "$WALLHAVEN_ENRICH" ]]; then
+if [[ "${WAYWALLEN_PALETTE_ENRICH_ENABLE:-0}" == "1" && "$EXTERNAL_ID" == "$BLUE_SKY_ID" && "$ext_lower" == "gif" && -f "$WALLHAVEN_ENRICH" ]]; then
   ENRICH_TMP="$CACHE_DIR/waywallen-enrich-$$.jpg"
   if command -v magick >/dev/null 2>&1; then
     if magick "$WALLHAVEN_ENRICH" -resize "${UPSCALE_LONG}x${UPSCALE_LONG}^" -gravity center -extent "${UPSCALE_LONG}x${UPSCALE_LONG}" \
@@ -501,7 +548,7 @@ trap - EXIT
 ensure_theme() {
   local cur
   cur="$(noctalia msg color-scheme-get 2>/dev/null || true)"
-  if [[ "$cur" != wallpaper* ]]; then
+  if [[ "$cur" != "wallpaper $WALLPAPER_SCHEME" ]]; then
     noctalia msg color-scheme-set wallpaper "$WALLPAPER_SCHEME" >/dev/null
     log "set color-scheme wallpaper $WALLPAPER_SCHEME (was: $cur)"
   fi
@@ -533,6 +580,18 @@ en="$(awk '
 if [[ "$en" == "true" ]]; then
   log "WARN: [wallpaper] enabled became true — leaving as-is (keep false; check manually)"
 fi
+
+# Refresh cache fingerprint after encode (source hash alone is not enough).
+CACHE_HASH=""
+if command -v sha256sum >/dev/null 2>&1; then
+  CACHE_HASH="$(sha256sum "$CACHE_JPG" | awk '{print $1}')"
+elif command -v sha256 >/dev/null 2>&1; then
+  CACHE_HASH="$(sha256 -q "$CACHE_JPG" 2>/dev/null || true)"
+fi
+STATE_PAYLOAD="$STATE_KEY"
+[[ -n "$SRC_HASH" ]] && STATE_PAYLOAD="$STATE_PAYLOAD sha256:$SRC_HASH"
+[[ -n "$CACHE_HASH" ]] && STATE_PAYLOAD="$STATE_PAYLOAD cache:$CACHE_HASH"
+STATE_PAYLOAD="$STATE_PAYLOAD scheme:$WALLPAPER_SCHEME"
 
 printf '%s\n' "$STATE_PAYLOAD" >"$STATE_FILE"
 scheme="$(noctalia msg color-scheme-get 2>/dev/null || echo '?')"
