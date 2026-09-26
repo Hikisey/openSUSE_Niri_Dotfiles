@@ -12,3 +12,6 @@ tesseract-ocr
 wl-clipboard
 xdg-desktop-portal-gnome
 xdg-desktop-portal-gtk
+
+# GUI monitor layout for niri (writes cfg/outputs.kdl)
+nwg-displays

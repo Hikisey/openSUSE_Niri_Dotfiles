@@ -50,7 +50,10 @@ Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 
 ## After install
 
-1. Configure monitors from `cfg/outputs.kdl.example`
+1. Open **Display Settings (nwg-displays)** from the app menu (or run `nwg-displays-niri`).
+   Arrange monitors like in Windows → Apply/Save. Layout is written to
+   `~/.config/niri/cfg/outputs.kdl` and survives reboot. Hand-edit
+   `cfg/outputs.kdl.example` only if you prefer editing KDL yourself.
 2. Set cursor in `cfg/misc.kdl` if you want
 3. Review keybinds for your apps
 4. Point Noctalia at your real outputs
@@ -90,6 +93,7 @@ Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 - Optional Noctalia shell config (monitor lists cleared; **no** shipped color
   scheme / `MaterialYouDark` / GTK-Qt files)
 - Kitty + Wayland helpers (screenshot / record / OCR / cast privacy / game-mode)
+- `nwg-displays` + `nwg-displays-niri` (GUI monitor layout → `cfg/outputs.kdl`)
 - `packages/zypper.txt`
 - Optional Waywallen extras under `optional/waywallen/` (palette + GTK/Qt bridge)
 

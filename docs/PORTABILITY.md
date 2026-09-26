@@ -12,3 +12,4 @@
    stock Plasma (Breeze / BreezeClassic) until they enable optional Waywallen
    extras (wallpaper-driven palette) or change colors themselves. Personal
    Noctalia palettes stay gitignored under `.config/noctalia/palettes/`.
+8. Prefer `nwg-displays-niri` for monitor layout — it writes `cfg/outputs.kdl` (included), never personal connector blocks in the repo.

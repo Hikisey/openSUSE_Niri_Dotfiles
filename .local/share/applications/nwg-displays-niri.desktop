@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Display Settings (nwg-displays)
+Comment=Arrange niri monitors; saves to ~/.config/niri/cfg/outputs.kdl
+Exec=@HOME@/.local/bin/nwg-displays-niri
+Icon=preferences-desktop-display
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;
+StartupNotify=true

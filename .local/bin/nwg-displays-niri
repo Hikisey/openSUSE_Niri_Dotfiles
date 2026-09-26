@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Persistent niri display settings (survives reboot).
+# Saves into the outputs file already included by config.kdl.
+set -euo pipefail
+OUT="${XDG_CONFIG_HOME:-$HOME/.config}/niri/cfg/outputs.kdl"
+mkdir -p "$(dirname -- "$OUT")"
+exec nwg-displays -m "$OUT" "$@"

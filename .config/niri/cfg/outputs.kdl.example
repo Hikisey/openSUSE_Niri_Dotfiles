@@ -1,6 +1,10 @@
 // Example only — do NOT copy blindly.
 // List connectors: niri msg outputs
 //
+// Recommended: run "Display Settings (nwg-displays)" from the app menu
+// (or: nwg-displays-niri). It applies layout live and writes this file
+// path: ~/.config/niri/cfg/outputs.kdl — already included by config.kdl.
+//
 // output "eDP-1" {
 //     mode "1920x1080@60.000"
 //     scale 1.0
