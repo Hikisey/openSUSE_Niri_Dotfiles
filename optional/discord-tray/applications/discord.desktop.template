@@ -1,0 +1,14 @@
+[Desktop Entry]
+# Tray needs X11 Ozone: bare Discord on Wayland often skips StatusNotifierItem.
+# Autostart and app-menu launches must use discord-tray, not /usr/bin/discord alone.
+Name=Discord
+StartupWMClass=discord
+Comment=All-in-one voice and text chat for gamers that is free, secure, and works on both your desktop and phone.
+GenericName=Internet Messenger
+Exec=@HOME@/.local/bin/discord-tray %U
+TryExec=@HOME@/.local/bin/discord-tray
+Icon=discord
+Type=Application
+Categories=Network;InstantMessaging;
+MimeType=x-scheme-handler/discord;
+Terminal=false

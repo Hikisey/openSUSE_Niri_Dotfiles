@@ -96,6 +96,7 @@ Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 - `nwg-displays` + `nwg-displays-niri` (GUI monitor layout → `cfg/outputs.kdl`)
 - `packages/zypper.txt`
 - Optional Waywallen extras under `optional/waywallen/` (palette + GTK/Qt bridge)
+- Optional Discord tray (X11 Ozone wrapper) under `optional/discord-tray/`
 
 ## Not included
 
@@ -103,6 +104,18 @@ Details: [`optional/waywallen/README.md`](optional/waywallen/README.md).
 - Wallpaper dumps / live palette caches
 - Hand-crafted `MaterialYouDark` / `kdeglobals` / GTK / qt5ct themes
 - Waywallen AppImage
+- Discord tray / Chromium desktop overrides (install from `optional/discord-tray/` if wanted)
+- Personal Noctalia tray pin lists, monitors, cursor, game window rules
+
+## Discord tray / middle-click (optional)
+
+```bash
+./optional/discord-tray/install.sh
+```
+
+Forces X11 Ozone so Discord registers a tray icon; documents per-app
+middle-click autoscroll (no global Win32-style scroll on Niri/Wayland).
+Details: [`optional/discord-tray/README.md`](optional/discord-tray/README.md).
 
 ## Portability
 

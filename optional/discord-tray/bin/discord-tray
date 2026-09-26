@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Discord tray on Niri / StatusNotifier hosts: force X11 Ozone so Electron
+# registers a tray icon. Also enables Blink MiddleClickAutoscroll (per-app).
+#
+# Override binary with DISCORD_BIN=/path/to/Discord if needed (Flatpak,
+# extracted updater tree, etc.). Do not hardcode a username home path.
+set -euo pipefail
+
+resolve_discord() {
+  if [[ -n "${DISCORD_BIN:-}" && -x "${DISCORD_BIN}" ]]; then
+    printf '%s\n' "$DISCORD_BIN"
+    return 0
+  fi
+  if [[ -x /usr/bin/discord ]]; then
+    printf '%s\n' /usr/bin/discord
+    return 0
+  fi
+  if command -v discord >/dev/null 2>&1; then
+    command -v discord
+    return 0
+  fi
+  echo "discord-tray: Discord binary not found. Install discord or set DISCORD_BIN." >&2
+  return 1
+}
+
+DISCORD="$(resolve_discord)" || exit 1
+
+exec env ELECTRON_OZONE_PLATFORM_HINT=x11 "$DISCORD" \
+  --ozone-platform=x11 \
+  --enable-blink-features=MiddleClickAutoscroll \
+  "$@"

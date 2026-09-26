@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Discord
+Comment=Discord via X11 Ozone wrapper (tray + optional middle-click autoscroll)
+Exec=@HOME@/.local/bin/discord-tray
+TryExec=@HOME@/.local/bin/discord-tray
+Icon=discord
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Terminal=false

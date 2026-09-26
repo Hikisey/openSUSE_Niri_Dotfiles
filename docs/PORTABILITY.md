@@ -13,3 +13,8 @@
    extras (wallpaper-driven palette) or change colors themselves. Personal
    Noctalia palettes stay gitignored under `.config/noctalia/palettes/`.
 8. Prefer `nwg-displays-niri` for monitor layout — it writes `cfg/outputs.kdl` (included), never personal connector blocks in the repo.
+9. Discord tray is **optional** (`optional/discord-tray/`) — X11 Ozone wrapper
+   + `@HOME@` desktop/autostart templates; never absolute `/home/<user>` Exec lines.
+10. Middle-click autoscroll is **per-app only** on Niri/Wayland — do not ship or
+    recommend global button2 stealers; leave Chromium/Helium/Vivaldi desktop
+    overrides and Noctalia tray pins on the local machine.
