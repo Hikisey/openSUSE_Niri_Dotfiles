@@ -21,7 +21,7 @@ Waywallen remains the visual wallpaper.
 State key is `w:<workshop_id>` when known (else `i:<item_id>`). Same key with a
 missing/empty cache still re-applies. `--force` ignores state.
 
-After `wallpaper-set`, the script runs `noctalia msg color-scheme-set wallpaper soft`
+After `wallpaper-set`, the script runs `noctalia msg color-scheme-set wallpaper m3-content`
 and `config-reload` so the same cache path still refreshes the palette.
 
 ## Units
@@ -58,7 +58,7 @@ noctalia msg color-scheme-set custom wallhaven-1q2zd1-sft
 ```
 
 Previous theme before install: `source=custom`, `custom_palette=wallhaven-1q2zd1-sft`,
-`wallpaper_scheme=soft`, `[wallpaper] enabled=false`.
+`wallpaper_scheme=m3-content`, `[wallpaper] enabled=false`.
 
 ## Caveats
 
@@ -75,12 +75,12 @@ waywallen-noctalia-palette --force
 # or:
 rm -f ~/.local/state/waywallen-noctalia-palette.state && waywallen-noctalia-palette
 
-noctalia msg color-scheme-get   # expect: wallpaper soft
+noctalia msg color-scheme-get   # expect: wallpaper m3-content
 ```
 
-If `soft` looks wrong for a wallpaper, try:
-`noctalia msg color-scheme-set wallpaper faithful`
-or `… m3-content` (script default remains `soft` via `NOCTALIA_WALLPAPER_SCHEME`).
+If accents look off for a wallpaper, try:
+`NOCTALIA_WALLPAPER_SCHEME=faithful waywallen-noctalia-palette --force`
+or `soft` / `vibrant` (script default is `m3-content`).
 
 
 ## Optimizations (2026-09-25)
@@ -96,7 +96,7 @@ or `… m3-content` (script default remains `soft` via `NOCTALIA_WALLPAPER_SCHEM
 After Noctalia’s wallpaper palette updates, the same cache image is passed to
 `waywallen-gtk-qt-palette`, which:
 
-1. Runs `noctalia theme <image> --scheme soft --dark` with a **narrow** template
+1. Runs `noctalia theme <image> --scheme m3-content --dark` with a **narrow** template
    config (`~/.config/waywallen/gtk-qt-palette-templates.toml`) for **gtk3,
    gtk4, kcolorscheme, qt only** (no niri / compositor templates).
 2. Writes Breeze-compatible `~/.config/gtk-3.0/colors.css` and `gtk-4.0/colors.css`
